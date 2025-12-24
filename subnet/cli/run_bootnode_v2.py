@@ -8,6 +8,7 @@ import trio
 import random
 from libp2p import new_host
 import secrets
+from libp2p.peer.id import ID as PeerID
 from libp2p.crypto.secp256k1 import create_new_key_pair
 from libp2p.utils.address_validation import (
     get_available_interfaces,
@@ -22,7 +23,7 @@ from libp2p.tools.async_service import (
 from libp2p.custom_types import (
     TProtocol,
 )
-
+from libp2p.records.pubkey import PublicKeyValidator
 from libp2p.abc import (
     IHost,
     ISecureTransport,
@@ -47,6 +48,11 @@ from libp2p.security.insecure.transport import (
     PLAINTEXT_PROTOCOL_ID,
     InsecureTransport,
 )
+from libp2p.crypto.keys import KeyPair
+from libp2p.peer.pb import crypto_pb2
+from libp2p.crypto.ed25519 import Ed25519PrivateKey
+from libp2p.records.validator import NamespacedValidator
+from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 
 # Configure logging
 logging.basicConfig(
@@ -65,15 +71,18 @@ def parse_args() -> argparse.Namespace:
         epilog="""
 Examples:
   # Run a standalone bootnode
-  python -m subnet.cli.run_bootnode
+  python -m subnet.cli.run_bootnode_v2
 
   # Run a bootnode connecting to bootstrap peers
-  python -m subnet.cli.run_bootnode --bootstrap /ip4/127.0.0.1/tcp/31330/p2p/QmBootstrapPeerID
+  python -m subnet.cli.run_bootnode_v2 --bootstrap /ip4/127.0.0.1/tcp/31330/p2p/QmBootstrapPeerID
 
   # Connect to multiple bootstrap peers
-  python -m subnet.cli.run_bootnode \\
+  python -m subnet.cli.run_bootnode_v2 \\
     --bootstrap /ip4/192.168.1.100/tcp/31330/p2p/QmPeer1 \\
     --bootstrap /ip4/192.168.1.101/tcp/31330/p2p/QmPeer2
+
+  # Run a bootnode with an identity file
+  python -m subnet.cli.run_bootnode_v2 --identity_path ed25519-bootnode.key --port 38959
         """,
     )
 
@@ -96,6 +105,14 @@ Examples:
         metavar="MULTIADDR",
         help="Bootstrap peer multiaddress (can be specified multiple times). "
         "Format: /ip4/<IP>/tcp/<PORT>/p2p/<PEER_ID>",
+    )
+
+    parser.add_argument(
+        "--identity_path", type=str, default=None, help="Path to the identity file. "
+    )
+
+    parser.add_argument(
+        "--subnet_id", type=int, default=1, help="Subnet ID this bootnode belongs to. "
     )
 
     parser.add_argument(
@@ -150,35 +167,52 @@ async def run_bootnode(args: argparse.Namespace):
     try:
         if args.port <= 0:
             port = random.randint(10000, 60000)
-        logger.debug(f"Using port: {args.port}")
+        else:
+            port = args.port
+        logger.debug(f"Using port: {port}")
+
+        if args.identity_path is None:
+            key_pair = create_new_key_pair(secrets.token_bytes(32))
+        else:
+            with open(f"{args.identity_path}", "rb") as f:
+                data = f.read()
+            private_key = crypto_pb2.PrivateKey.FromString(data)
+            ed25519_private_key = Ed25519PrivateKey.from_bytes(private_key.Data)
+            public_key = ed25519_private_key.get_public_key()
+            key_pair = KeyPair(ed25519_private_key, public_key)
 
         if args.bootstrap_addrs:
             for addr in args.bootstrap_addrs:
                 bootstrap_nodes.append(addr)
 
-        key_pair = create_new_key_pair(secrets.token_bytes(32))
+        if len(bootstrap_nodes) == 0:
+            logger.warning(
+                "No bootstrap nodes provided. The node will not be able to connect to other nodes."
+            )
+
+        reset_db = False
+        if not args.bootstrap_addrs:
+            # Reset when deploying a new swarm
+            reset_db = True
+        hypertensor = LocalMockHypertensor(
+            subnet_id=args.subnet_id,
+            peer_id=PeerID.from_pubkey(key_pair.public_key),
+            subnet_node_id=0,
+            coldkey="",
+            hotkey="",
+            bootnode_peer_id="",
+            client_peer_id="",
+            reset_db=reset_db,
+        )
+
         host = new_host(key_pair=key_pair)
-
-        # noise_key_pair = create_new_x25519_key_pair()
-
-        # secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
-        #     NOISE_PROTOCOL_ID: NoiseTransport(
-        #         key_pair, noise_privkey=noise_key_pair.private_key
-        #     ),
-        #     TProtocol(secio.ID): secio.Transport(key_pair),
-        #     TProtocol(PLAINTEXT_PROTOCOL_ID): InsecureTransport(
-        #         key_pair, peerstore=None
-        #     ),
-        # }
-
-        # host = new_host(key_pair=key_pair, sec_opt=secure_transports_by_protocol)
 
         from libp2p.utils.address_validation import (
             get_available_interfaces,
             get_optimal_binding_address,
         )
 
-        listen_addrs = get_available_interfaces(args.port)
+        listen_addrs = get_available_interfaces(port)
 
         async with host.run(listen_addrs=listen_addrs), trio.open_nursery() as nursery:
             # Start the peer-store cleanup task
@@ -194,13 +228,19 @@ async def run_bootnode(args: argparse.Namespace):
                 logger.info(f"{addr}")
 
             # Use optimal address for the bootstrap command
-            optimal_addr = get_optimal_binding_address(args.port)
+            optimal_addr = get_optimal_binding_address(port)
             optimal_addr_with_peer = f"{optimal_addr}/p2p/{host.get_id().to_string()}"
             bootstrap_cmd = f"--bootstrap {optimal_addr_with_peer}"
             logger.info("To connect to this node, use: %s", bootstrap_cmd)
 
             await connect_to_bootstrap_nodes(host, bootstrap_nodes)
-            dht = KadDHT(host, DHTMode.SERVER)
+            dht = KadDHT(
+                host,
+                DHTMode.SERVER,
+                enable_random_walk=True,
+                validator=NamespacedValidator({"pk": PublicKeyValidator()}),
+            )
+
             # take all peer ids from the host and add them to the dht
             for peer_id in host.get_peerstore().peer_ids():
                 await dht.routing_table.add_peer(peer_id)
@@ -208,6 +248,8 @@ async def run_bootnode(args: argparse.Namespace):
 
             # Start the DHT service
             async with background_trio_service(dht):
+                logger.info(f"DHT service started in {DHTMode.SERVER.value} mode")
+
                 # Keep the node running
                 while True:
                     logger.info(
@@ -218,6 +260,69 @@ async def run_bootnode(args: argparse.Namespace):
                         len(dht.value_store.store),
                     )
                     await trio.sleep(10)
+
+        # key_pair = create_new_key_pair(secrets.token_bytes(32))
+        # host = new_host(key_pair=key_pair)
+
+        # # noise_key_pair = create_new_x25519_key_pair()
+
+        # # secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
+        # #     NOISE_PROTOCOL_ID: NoiseTransport(
+        # #         key_pair, noise_privkey=noise_key_pair.private_key
+        # #     ),
+        # #     TProtocol(secio.ID): secio.Transport(key_pair),
+        # #     TProtocol(PLAINTEXT_PROTOCOL_ID): InsecureTransport(
+        # #         key_pair, peerstore=None
+        # #     ),
+        # # }
+
+        # # host = new_host(key_pair=key_pair, sec_opt=secure_transports_by_protocol)
+
+        # from libp2p.utils.address_validation import (
+        #     get_available_interfaces,
+        #     get_optimal_binding_address,
+        # )
+
+        # listen_addrs = get_available_interfaces(args.port)
+
+        # async with host.run(listen_addrs=listen_addrs), trio.open_nursery() as nursery:
+        #     # Start the peer-store cleanup task
+        #     nursery.start_soon(host.get_peerstore().start_cleanup_task, 60)
+
+        #     peer_id = host.get_id().pretty()
+
+        #     # Get all available addresses with peer ID
+        #     all_addrs = host.get_addrs()
+
+        #     logger.info("Listener ready, listening on:")
+        #     for addr in all_addrs:
+        #         logger.info(f"{addr}")
+
+        #     # Use optimal address for the bootstrap command
+        #     optimal_addr = get_optimal_binding_address(args.port)
+        #     optimal_addr_with_peer = f"{optimal_addr}/p2p/{host.get_id().to_string()}"
+        #     bootstrap_cmd = f"--bootstrap {optimal_addr_with_peer}"
+        #     logger.info("To connect to this node, use: %s", bootstrap_cmd)
+
+        #     await connect_to_bootstrap_nodes(host, bootstrap_nodes)
+        #     dht = KadDHT(host, DHTMode.SERVER)
+        #     # take all peer ids from the host and add them to the dht
+        #     for peer_id in host.get_peerstore().peer_ids():
+        #         await dht.routing_table.add_peer(peer_id)
+        #     logger.info(f"Connected to bootstrap nodes: {host.get_connected_peers()}")
+
+        #     # Start the DHT service
+        #     async with background_trio_service(dht):
+        #         # Keep the node running
+        #         while True:
+        #             logger.info(
+        #                 "Status - Connected peers: %d,"
+        #                 "Peers in store: %d, Values in store: %d",
+        #                 len(dht.host.get_connected_peers()),
+        #                 len(dht.host.get_peerstore().peer_ids()),
+        #                 len(dht.value_store.store),
+        #             )
+        #             await trio.sleep(10)
 
     except Exception as e:
         logger.error(f"Server node error: {e}", exc_info=True)

@@ -23,7 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "libp2p==0.4.0",
+    "libp2p @ git+https://github.com/libp2p/py-libp2p.git@main",
     "substrate-interface @ git+https://github.com/hayotensor/py-polkadot-sdk.git@hypertensor",
     "tenacity>=8.2.3",
     "multiaddr==0.0.11",
@@ -70,6 +70,10 @@ Issues = "https://github.com/hayotensor/py-libp2p-subnet/issues"
 [project.scripts]
 run_node = "subnet.cli.run_node:main"
 run_bootnode = "subnet.cli.run_bootnode:main"
+run_bootnode_v2 = "subnet.cli.run_bootnode_v2:main"
+run_node_v2 = "subnet.cli.run_node_v2:main"
+run_kad_dht = "subnet.cli.run_kad_dht:main"
+keygen = "subnet.cli.crypto.keygen:main"
 
 [tool.setuptools]
 packages = ["subnet"]

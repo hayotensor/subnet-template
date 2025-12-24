@@ -6,8 +6,13 @@ import sys
 
 import trio
 
-from subnet.server.server import Server
+from subnet.server.server_v2 import Server
 import random
+from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
+from libp2p.crypto.keys import KeyPair
+from libp2p.peer.pb import crypto_pb2
+from libp2p.crypto.ed25519 import Ed25519PrivateKey
+from libp2p.peer.id import ID as PeerID
 
 # Configure logging
 logging.basicConfig(
@@ -21,11 +26,11 @@ logger = logging.getLogger(__name__)
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Run a libp2p subnet server node",
+        description="Run a libp2p subnet node",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run a standalone node (no bootstrap peers)
+  # Run a standalone node
   python -m subnet.cli.run_node
 
   # Run a node connecting to bootstrap peers
@@ -35,44 +40,56 @@ Examples:
   python -m subnet.cli.run_node \\
     --bootstrap /ip4/192.168.1.100/tcp/31330/p2p/QmPeer1 \\
     --bootstrap /ip4/192.168.1.101/tcp/31330/p2p/QmPeer2
+
+  # Run a node with an identity file
+  python -m subnet.cli.run_node --identity_path alith-ed25519.key --port 38960 --bootstrap /ip4/127.0.0.1/tcp/38959/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
+  python -m subnet.cli.run_node --identity_path baltathar-ed25519.key --port 38961 --bootstrap /ip4/127.0.0.1/tcp/38959/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
+  python -m subnet.cli.run_node --identity_path charleth-ed25519.key --port 38962 --bootstrap /ip4/127.0.0.1/tcp/38959/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
         """,
     )
 
     parser.add_argument(
-        "--bootstrap",
-        "-b",
-        action="append",
-        dest="bootstrap_addrs",
-        default=[],
-        metavar="MULTIADDR",
-        help="Bootstrap peer multiaddress (can be specified multiple times). "
-        "Format: /ip4/<IP>/tcp/<PORT>/p2p/<PEER_ID>",
+        "--mode",
+        default="server",
+        help="Run as a server or client node",
     )
-
     parser.add_argument(
         "--port",
-        "-p",
         type=int,
-        required=False,
-        help="Port this server listens to. "
-        "This is a simplified way to set the --host_maddrs and --announce_maddrs options (see below) "
-        "that sets the port across all interfaces (IPv4, IPv6) and protocols (TCP, etc.) "
-        "to the same number. Default: a random free port is chosen for each interface and protocol",
+        default=0,
+        help="Port to listen on (0 for random)",
+    )
+    parser.add_argument(
+        "--bootstrap",
+        type=str,
+        nargs="*",
+        help=(
+            "Multiaddrs of bootstrap nodes. "
+            "Provide a space-separated list of addresses. "
+            "This is required for client mode."
+        ),
     )
 
     parser.add_argument(
-        "--log-level",
-        "-l",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default="INFO",
-        help="Set the logging level (default: INFO)",
+        "--identity_path", type=str, default=None, help="Path to the identity file. "
     )
 
     parser.add_argument(
-        "--version",
-        "-v",
-        action="version",
-        version="%(prog)s 0.1.0",
+        "--subnet_id", type=int, default=1, help="Subnet ID this node belongs to. "
+    )
+
+    parser.add_argument(
+        "--subnet_node_id",
+        type=int,
+        default=1,
+        help="Subnet node ID this node belongs to. ",
+    )
+
+    # add option to use verbose logging
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging",
     )
 
     return parser.parse_args()
@@ -83,7 +100,10 @@ def main() -> None:
     args = parse_args()
 
     # Set logging level
-    logging.getLogger().setLevel(args.log_level)
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
 
     # Log startup information
     logger.info("Starting libp2p subnet server node...")
@@ -93,14 +113,39 @@ def main() -> None:
         port = random.randint(10000, 60000)
     logger.debug(f"Using port: {port}")
 
-    if args.bootstrap_addrs:
-        logger.info(f"Bootstrap peers: {args.bootstrap_addrs}")
+    if args.bootstrap:
+        logger.info(f"Bootstrap peers: {args.bootstrap}")
     else:
         logger.info("Running as standalone node (no bootstrap peers)")
 
     # Create and run the server
     try:
-        server = Server(port=port, bootstrap_addrs=args.bootstrap_addrs)
+        with open(f"{args.identity_path}", "rb") as f:
+            data = f.read()
+        private_key = crypto_pb2.PrivateKey.FromString(data)
+        ed25519_private_key = Ed25519PrivateKey.from_bytes(private_key.Data)
+        public_key = ed25519_private_key.get_public_key()
+        key_pair = KeyPair(ed25519_private_key, public_key)
+
+        hypertensor = LocalMockHypertensor(
+            subnet_id=args.subnet_id,
+            peer_id=PeerID.from_pubkey(key_pair.public_key),
+            subnet_node_id=args.subnet_node_id,
+            coldkey="",
+            hotkey="",
+            bootnode_peer_id="",
+            client_peer_id="",
+            reset_db=True if not args.bootstrap else False,
+        )
+
+        server = Server(
+            port=port,
+            bootstrap_addrs=args.bootstrap,
+            key_pair=key_pair,
+            subnet_id=args.subnet_id,
+            subnet_node_id=args.subnet_node_id,
+            hypertensor=hypertensor,
+        )
         trio.run(server.run)
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down...")

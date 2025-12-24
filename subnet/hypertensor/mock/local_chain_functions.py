@@ -44,6 +44,12 @@ class LocalMockHypertensor:
         client_peer_id: str,
         reset_db: bool = False,
     ):
+        # Initialize database
+        self.db = MockDatabase()
+        if reset_db:
+            logger.info("Resetting database")
+            self.db.reset_database()
+
         self.subnet_id = subnet_id
         self.peer_id = peer_id
         self.subnet_node_id = subnet_node_id
@@ -52,11 +58,6 @@ class LocalMockHypertensor:
         self.bootnode_peer_id = bootnode_peer_id
         self.client_peer_id = client_peer_id
         self.BLOCK_SECS = 6
-
-        # Initialize database
-        self.db = MockDatabase()
-        if reset_db:
-            self.db.reset_database()
 
         # Only store if not bootnode, use `subnet_node_id=0` if bootnode
         if subnet_node_id != 0:
@@ -96,8 +97,9 @@ class LocalMockHypertensor:
     ):
         epoch = self.get_epoch()
         subnet_nodes = self.db.get_all_subnet_nodes(subnet_id)
+        validator_node_id = self.get_rewards_validator(subnet_id, epoch)
         proposal = {
-            "validator_id": self.subnet_node_id,
+            "validator_id": validator_node_id,
             "validator_epoch_progress": 0,
             "attests": [
                 {
@@ -109,6 +111,7 @@ class LocalMockHypertensor:
                     }
                 }
                 for node in subnet_nodes
+                if node["subnet_node_id"] == validator_node_id
             ],
             "subnet_nodes": subnet_nodes,
             "prioritize_queue_node_id": None,
@@ -116,7 +119,11 @@ class LocalMockHypertensor:
             "data": data,
             "args": args,
         }
+
         self.db.insert_consensus_data(subnet_id, epoch, proposal)
+
+        print("✅ Extrinsic Success")
+
         return proposal
 
     def attest(self, subnet_id: int, data: Optional[List[Any]] = None):
@@ -134,15 +141,6 @@ class LocalMockHypertensor:
             )
 
         # Build this peer's attestation record
-        # attestation_entry = {
-        #     self.subnet_node_id: {
-        #         "block": self.get_block_number(),
-        #         "attestor_progress": 0,
-        #         "reward_factor": int(1e18),
-        #         "data": data or "",
-        #     }
-        # }
-
         attestation_entry = Attest(
             attestor_id=self.subnet_node_id,
             entry=AttestEntry(
@@ -165,6 +163,9 @@ class LocalMockHypertensor:
 
         # Save updated record back to database
         consensus["attests"] = updated_attests
+
+        print("✅ Extrinsic Success")
+
         self.db.insert_consensus_data(subnet_id, epoch, consensus)
 
     def get_consensus_data_formatted(
@@ -318,9 +319,6 @@ class LocalMockHypertensor:
             seconds_remaining=seconds_remaining,
         )
 
-    # def get_rewards_validator(self, subnet_id: int, epoch: int):
-    #     return 6
-
     def get_rewards_validator(self, subnet_id: int, epoch: int):
         subnet_nodes = self.get_min_class_subnet_nodes_formatted(
             subnet_id, epoch, SubnetNodeClass.Validator
@@ -432,7 +430,7 @@ class LocalMockHypertensor:
 
                 node_class_enum = subnet_node_class_to_enum(node_class_name)
 
-                if node_class_enum.value >= 4:
+                if node_class_enum.value >= 3:
                     qualified_nodes.append(
                         SubnetNodeInfo(
                             subnet_id=self.subnet_id,
@@ -483,6 +481,7 @@ class LocalMockHypertensor:
             state="Active",
             start_epoch=0,
             churn_limit=10,
+            churn_limit_multiplier=1,
             min_stake=0,
             max_stake=0,
             queue_immunity_epochs=0,

@@ -47,6 +47,9 @@ from libp2p.security.insecure.transport import (
     PLAINTEXT_PROTOCOL_ID,
     InsecureTransport,
 )
+from libp2p.crypto.keys import KeyPair
+from libp2p.peer.pb import crypto_pb2
+from libp2p.crypto.ed25519 import Ed25519PrivateKey
 
 # Configure logging
 logging.basicConfig(
@@ -57,63 +60,76 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Run a libp2p subnet bootnode",
+        description="Run a libp2p subnet node",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run a standalone bootnode
-  python -m subnet.cli.run_bootnode
+  # Run a standalone node
+  python -m subnet.cli.run_node_v2
 
-  # Run a bootnode connecting to bootstrap peers
-  python -m subnet.cli.run_bootnode --bootstrap /ip4/127.0.0.1/tcp/31330/p2p/QmBootstrapPeerID
+  # Run a node connecting to bootstrap peers
+  python -m subnet.cli.run_node_v2 --bootstrap /ip4/127.0.0.1/tcp/31330/p2p/QmBootstrapPeerID
 
   # Connect to multiple bootstrap peers
-  python -m subnet.cli.run_bootnode \\
+  python -m subnet.cli.run_node_v2 \\
     --bootstrap /ip4/192.168.1.100/tcp/31330/p2p/QmPeer1 \\
     --bootstrap /ip4/192.168.1.101/tcp/31330/p2p/QmPeer2
+
+  # Run a node with an identity file
+  python -m subnet.cli.run_node_v2 --identity_path alith-ed25519.key --port 38960 --bootstrap /ip4/127.0.0.1/tcp/38959/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
+  python -m subnet.cli.run_node_v2 --identity_path baltathar-ed25519.key --port 38961 --bootstrap /ip4/127.0.0.1/tcp/38959/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
+  python -m subnet.cli.run_node_v2 --identity_path charleth-ed25519.key --port 38962 --bootstrap /ip4/127.0.0.1/tcp/38959/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
         """,
     )
 
     parser.add_argument(
+        "--mode",
+        default="server",
+        help="Run as a server or client node",
+    )
+    parser.add_argument(
         "--port",
         type=int,
         default=0,
-        help="Port this server listens to. "
-        "This is a simplified way to set the --host_maddrs and --announce_maddrs options (see below) "
-        "that sets the port across all interfaces (IPv4, IPv6) and protocols (TCP, etc.) "
-        "to the same number. Default: a random free port is chosen for each interface and protocol",
+        help="Port to listen on (0 for random)",
     )
-
     parser.add_argument(
         "--bootstrap",
-        "-b",
-        action="append",
-        dest="bootstrap_addrs",
-        default=[],
-        metavar="MULTIADDR",
-        help="Bootstrap peer multiaddress (can be specified multiple times). "
-        "Format: /ip4/<IP>/tcp/<PORT>/p2p/<PEER_ID>",
+        type=str,
+        nargs="*",
+        help=(
+            "Multiaddrs of bootstrap nodes. "
+            "Provide a space-separated list of addresses. "
+            "This is required for client mode."
+        ),
     )
 
     parser.add_argument(
-        "--log-level",
-        "-l",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default="INFO",
-        help="Set the logging level (default: INFO)",
+        "--identity_path", type=str, default=None, help="Path to the identity file. "
     )
 
     parser.add_argument(
-        "--version",
-        "-v",
-        action="version",
-        version="%(prog)s 0.1.0",
+        "--subnet_id", type=int, default=1, help="Subnet ID this bootnode belongs to. "
     )
 
-    return parser.parse_args()
+    # add option to use verbose logging
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging",
+    )
+
+    args = parser.parse_args()
+    # Set logging level based on verbosity
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
+
+    return args
 
 
 # function to take bootstrap_nodes as input and connects to them
@@ -138,47 +154,44 @@ async def connect_to_bootstrap_nodes(host: IHost, bootstrap_addrs: list[str]) ->
             logger.error(f"Failed to connect to bootstrap node {addr}: {e}")
 
 
-async def run_bootnode(args: argparse.Namespace):
-    # Set logging level
-    logging.getLogger().setLevel(args.log_level)
-
-    # Log startup information
-    logger.info("Starting libp2p subnet server node...")
-
+async def run_node(
+    port: int,
+    mode: str,
+    subnet_id: int = 1,
+    bootstrap_addrs: list[str] | None = None,
+    identity_path: str | None = None,
+) -> None:
+    """Run a node that serves content in the DHT with setup inlined."""
     bootstrap_nodes = []
 
     try:
-        if args.port <= 0:
+        if port <= 0:
             port = random.randint(10000, 60000)
-        logger.debug(f"Using port: {args.port}")
+        logger.debug(f"Using port: {port}")
 
-        if args.bootstrap_addrs:
-            for addr in args.bootstrap_addrs:
+        dht_mode = DHTMode.SERVER
+
+        if bootstrap_addrs:
+            for addr in bootstrap_addrs:
                 bootstrap_nodes.append(addr)
 
-        key_pair = create_new_key_pair(secrets.token_bytes(32))
+        if identity_path is None:
+            key_pair = create_new_key_pair(secrets.token_bytes(32))
+        else:
+            with open(f"{identity_path}", "rb") as f:
+                data = f.read()
+            private_key = crypto_pb2.PrivateKey.FromString(data)
+            ed25519_private_key = Ed25519PrivateKey.from_bytes(private_key.Data)
+            public_key = ed25519_private_key.get_public_key()
+            key_pair = KeyPair(ed25519_private_key, public_key)
         host = new_host(key_pair=key_pair)
-
-        # noise_key_pair = create_new_x25519_key_pair()
-
-        # secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
-        #     NOISE_PROTOCOL_ID: NoiseTransport(
-        #         key_pair, noise_privkey=noise_key_pair.private_key
-        #     ),
-        #     TProtocol(secio.ID): secio.Transport(key_pair),
-        #     TProtocol(PLAINTEXT_PROTOCOL_ID): InsecureTransport(
-        #         key_pair, peerstore=None
-        #     ),
-        # }
-
-        # host = new_host(key_pair=key_pair, sec_opt=secure_transports_by_protocol)
 
         from libp2p.utils.address_validation import (
             get_available_interfaces,
             get_optimal_binding_address,
         )
 
-        listen_addrs = get_available_interfaces(args.port)
+        listen_addrs = get_available_interfaces(port)
 
         async with host.run(listen_addrs=listen_addrs), trio.open_nursery() as nursery:
             # Start the peer-store cleanup task
@@ -194,13 +207,14 @@ async def run_bootnode(args: argparse.Namespace):
                 logger.info(f"{addr}")
 
             # Use optimal address for the bootstrap command
-            optimal_addr = get_optimal_binding_address(args.port)
+            optimal_addr = get_optimal_binding_address(port)
             optimal_addr_with_peer = f"{optimal_addr}/p2p/{host.get_id().to_string()}"
             bootstrap_cmd = f"--bootstrap {optimal_addr_with_peer}"
             logger.info("To connect to this node, use: %s", bootstrap_cmd)
 
             await connect_to_bootstrap_nodes(host, bootstrap_nodes)
-            dht = KadDHT(host, DHTMode.SERVER)
+            dht = KadDHT(host, DHTMode.SERVER, enable_random_walk=True)
+
             # take all peer ids from the host and add them to the dht
             for peer_id in host.get_peerstore().peer_ids():
                 await dht.routing_table.add_peer(peer_id)
@@ -208,6 +222,8 @@ async def run_bootnode(args: argparse.Namespace):
 
             # Start the DHT service
             async with background_trio_service(dht):
+                logger.info(f"DHT service started in {dht_mode.value} mode")
+
                 # Keep the node running
                 while True:
                     logger.info(
@@ -224,14 +240,46 @@ async def run_bootnode(args: argparse.Namespace):
         sys.exit(1)
 
 
-def main() -> None:
-    """Main entry point for the CLI."""
-    args = parse_args()
+# def main() -> None:
+#     """Main entry point for the CLI."""
+#     args = parse_args()
 
+#     # Set logging level
+#     logging.getLogger().setLevel(args.log_level)
+
+#     # Log startup information
+#     logger.info("Starting libp2p subnet server node...")
+
+#     port = args.port
+#     if port <= 0:
+#         port = random.randint(10000, 60000)
+#     logger.debug(f"Using port: {port}")
+
+
+#     if args.bootstrap_addrs:
+#         logger.info(f"Bootstrap peers: {args.bootstrap_addrs}")
+#     else:
+#         logger.info("Running as standalone node (no bootstrap peers)")
+def main():
+    """Main entry point for the kademlia demo."""
     try:
-        trio.run(run_bootnode, args)
-    except KeyboardInterrupt:
-        logger.info("Exiting...")
+        args = parse_args()
+        logger.info(
+            "Running in %s mode on port %d",
+            args.mode,
+            args.port,
+        )
+        trio.run(
+            run_node,
+            args.port,
+            args.mode,
+            args.subnet_id,
+            args.bootstrap,
+            args.identity_path,
+        )
+    except Exception as e:
+        logger.critical(f"Script failed: {e}", exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ cd py-libp2p-subnet
 python -m venv .venv
 source .venv/bin/activate
 pip install .
+touch .env
 ```
 
 ### Development Installation
@@ -46,6 +47,45 @@ pytest --cov=subnet --cov-report=html
 
 # Run specific test file
 pytest tests/test_example.py
+```
+
+### Running Locally
+
+#### Start Bootnode
+
+```bash
+python -m subnet.cli.run_bootnode_v2 \
+--identity_path ed25519-bootnode.key \
+--port 38959
+```
+
+#### Start Peers (Nodes)
+
+##### Start Node 1 (Alith)
+
+```bash
+python -m subnet.cli.run_node_v2 \
+--identity_path alith-ed25519.key \
+--port 38960 \
+--bootstrap /ip4/127.0.0.1/tcp/38959/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
+```
+
+##### Start Node 2 (Baltathar)
+
+```bash
+python -m subnet.cli.run_node_v2 \
+--identity_path baltathar-ed25519.key \
+--port 38961 \
+--bootstrap /ip4/127.0.0.1/tcp/38959/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
+```
+
+##### Start Node 3 (Charleth)
+
+```bash
+python -m subnet.cli.run_node_v2 \
+--identity_path charleth-ed25519.key \
+--port 38962 \
+--bootstrap /ip4/127.0.0.1/tcp/38959/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
 ```
 
 ### Code Quality

@@ -128,7 +128,9 @@ class MockDatabase:
 
     def get_all_subnet_nodes(self, subnet_id: int) -> list[dict]:
         c = self.conn.cursor()
-        c.execute("SELECT info_json FROM subnet_nodes WHERE subnet_id = ?", (subnet_id,))
+        c.execute(
+            "SELECT info_json FROM subnet_nodes WHERE subnet_id = ?", (subnet_id,)
+        )
         rows = c.fetchall()
 
         result = []

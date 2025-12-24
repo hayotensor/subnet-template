@@ -1,4 +1,3 @@
-import binascii
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, List, Optional
@@ -25,10 +24,8 @@ from subnet.hypertensor.chain_data import (
     SubnetNode,
     SubnetNodeInfo,
     SubnetNodeStakeInfo,
-    get_runtime_config,
 )
 from subnet.hypertensor.config import BLOCK_SECS
-
 import logging
 
 # Configure logging
@@ -37,7 +34,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()],
 )
-logger = logging.getLogger("hypertensor")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -104,10 +101,10 @@ class KeypairFrom(Enum):
 
 
 class SubnetNodeClass(Enum):
-    Registered = 1
-    Idle = 2
-    Included = 3
-    Validator = 4
+    Registered = 0
+    Idle = 1
+    Included = 2
+    Validator = 3
 
 
 # lookup from string
@@ -128,7 +125,6 @@ class Hypertensor:
         runtime_config: Optional[RuntimeConfiguration] = None,
     ):
         self.url = url
-        # self.interface: SubstrateInterface = SubstrateInterface(url=url)
         self.interface: SubstrateInterface = SubstrateInterface(
             url=url, runtime_config=runtime_config
         )
@@ -197,7 +193,6 @@ class Hypertensor:
         Note: It's important before calling this to ensure the entrinsic will be successful.
               If the function reverts, the extrinsic is Pays::Yes
         """
-
         # compose call
         call = self.interface.compose_call(
             call_module="Network",
@@ -228,8 +223,7 @@ class Hypertensor:
                         extrinsic, wait_for_inclusion=True
                     )
                     if receipt.is_success:
-                        for event in receipt.triggered_events:
-                            print(f"* {event.value}")
+                        print("✅ Extrinsic Success")
                     else:
                         logger.error(f"⚠️ Extrinsic Failed: {receipt.error_message}")
 
@@ -275,8 +269,7 @@ class Hypertensor:
                     )
 
                     if receipt.is_success:
-                        for event in receipt.triggered_events:
-                            print(f"* {event.value}")
+                        print("✅ Extrinsic Success")
                     else:
                         logger.error(f"⚠️ Extrinsic Failed: {receipt.error_message}")
 
@@ -1824,10 +1817,10 @@ class Hypertensor:
         :param peer_id: peer ID
         :param min_class: SubnetNodeClass enum
 
-        Registered = 1
-        Idle = 2
-        Included = 3
-        Validator = 4
+        Registered = 0
+        Idle = 1
+        Included = 2
+        Validator = 3
 
         ```rust
         pub enum SubnetNodeClass {
@@ -2381,6 +2374,24 @@ class Hypertensor:
                 f"Error get_min_class_subnet_nodes_formatted={e}", exc_info=True
             )
             return []
+
+    # def get_subnet_node_info_formatted(self, subnet_id: int, subnet_node_id: int) -> Optional["SubnetNodeInfo"]:
+    #     """
+    #     Get formatted list of subnet nodes classified as Validator
+
+    #     :param subnet_id: subnet ID
+
+    #     :returns: List of subnet node IDs
+    #     """
+    #     try:
+    #         result = self.get_subnet_node_info(subnet_id, subnet_node_id)
+
+    #         subnet_node = SubnetNodeInfo.from_vec_u8(result["result"])
+
+    #         return subnet_node
+    #     except Exception as e:
+    #         logger.error(f"Error get_subnet_node_data_formatted={e}", exc_info=True)
+    #         return None
 
     def update_bootnodes(
         self,

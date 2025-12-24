@@ -92,31 +92,31 @@ class Server:
             # Generate X25519 keypair for Noise
             noise_key_pair = create_new_x25519_key_pair()
 
-            # secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
-            #     NOISE_PROTOCOL_ID: NoiseTransport(
-            #         key_pair, noise_privkey=noise_key_pair.private_key
-            #     ),
-            #     TProtocol(secio.ID): secio.Transport(key_pair),
-            #     TProtocol(PLAINTEXT_PROTOCOL_ID): InsecureTransport(
-            #         key_pair, peerstore=None
-            #     ),
-            # }
-
-            pos_transport = POSTransport(
-                noise_transport=NoiseTransport(
+            secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
+                NOISE_PROTOCOL_ID: NoiseTransport(
                     key_pair, noise_privkey=noise_key_pair.private_key
                 ),
-                pos=None,
-            )
-
-            secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
-                POS_PROTOCOL_ID: pos_transport,
+                TProtocol(secio.ID): secio.Transport(key_pair),
+                TProtocol(PLAINTEXT_PROTOCOL_ID): InsecureTransport(
+                    key_pair, peerstore=None
+                ),
             }
 
-            host = new_host(key_pair=key_pair, sec_opt=secure_transports_by_protocol)
-            # host = new_host(key_pair=key_pair)
+            # pos_transport = POSTransport(
+            #     noise_transport=NoiseTransport(
+            #         key_pair, noise_privkey=noise_key_pair.private_key
+            #     ),
+            #     pos=None,
+            # )
 
-            mock_protocol = MockProtocol(host)
+            # secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
+            #     POS_PROTOCOL_ID: pos_transport,
+            # }
+
+            # host = new_host(key_pair=key_pair, sec_opt=secure_transports_by_protocol)
+            host = new_host(key_pair=key_pair)
+
+            # mock_protocol = MockProtocol(host)
 
             from libp2p.utils.address_validation import (
                 get_available_interfaces,
@@ -165,14 +165,14 @@ class Server:
 
                 logger.info(f"val_key is: {val_key}")
 
-                nursery.start_soon(heartbeat, self.dht, val_key.encode(), val_data)
+                # nursery.start_soon(heartbeat, self.dht, val_key.encode(), val_data)
 
-                if len(bootstrap_nodes) != 0:
-                    nursery.start_soon(
-                        mock_protocol_call,
-                        mock_protocol,
-                        Multiaddr(bootstrap_nodes[0]),
-                    )
+                # if len(bootstrap_nodes) != 0:
+                #     nursery.start_soon(
+                #         mock_protocol_call,
+                #         mock_protocol,
+                #         Multiaddr(bootstrap_nodes[0]),
+                #     )
 
                 while True:
                     logger.info(
@@ -230,7 +230,7 @@ async def connect_to_bootstrap_nodes(host: IHost, bootstrap_addrs: list[str]) ->
     for addr in bootstrap_addrs:
         try:
             peerInfo = info_from_p2p_addr(Multiaddr(addr))
-            host.get_peerstore().add_addrs(peerInfo.peer_id, peerInfo.addrs, 3600)
+            host.get_peerstore().add_addrs(peerInfo.peer_id, peerInfo.addrs, 300)
             await host.connect(peerInfo)
         except Exception as e:
             logger.error(f"Failed to connect to bootstrap node {addr}: {e}")
