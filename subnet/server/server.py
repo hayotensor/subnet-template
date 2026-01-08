@@ -42,6 +42,7 @@ from subnet.utils.pos.pos_transport import (
     POSTransport,
 )
 from subnet.utils.pos.proof_of_stake import ProofOfStake
+from subnet.utils.protocols.ping import handle_ping
 from subnet.utils.pubsub.custom_score_params import custom_score_params
 from subnet.utils.pubsub.heartbeat import (
     HEARTBEAT_TOPIC,
@@ -65,6 +66,8 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger("server/1.0.0")
+
+PING_PROTOCOL_ID = TProtocol("/ipfs/ping/1.0.0")
 
 
 class Server:
@@ -135,8 +138,12 @@ class Server:
 
         termination_event = trio.Event()  # Event to signal termination
         async with host.run(listen_addrs=listen_addrs), trio.open_nursery() as nursery:
+            logger.info(f"Listening address: {listen_addrs}")
             # Start the peer-store cleanup task, TTL
             nursery.start_soon(host.get_peerstore().start_cleanup_task, 60)
+
+            # Set stream handler for ping protocol (used by overwatch nodes)
+            host.set_stream_handler(PING_PROTOCOL_ID, handle_ping)
 
             dht = KadDHT(
                 host,

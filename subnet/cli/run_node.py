@@ -10,12 +10,6 @@ import sys
 import time
 
 from dotenv import load_dotenv
-from substrateinterface import (
-    Keypair as SubstrateKeypair,
-    KeypairType,
-)
-import trio
-
 from libp2p.crypto.ed25519 import (
     Ed25519PrivateKey,
     create_new_key_pair,
@@ -24,6 +18,12 @@ from libp2p.crypto.keys import KeyPair
 from libp2p.crypto.secp256k1 import Secp256k1PrivateKey
 from libp2p.peer.id import ID as PeerID
 from libp2p.peer.pb import crypto_pb2
+from substrateinterface import (
+    Keypair as SubstrateKeypair,
+    KeypairType,
+)
+import trio
+
 from subnet.db.database import RocksDB
 from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
@@ -369,6 +369,9 @@ def main() -> None:
         # Give time for database to be written
         # time.sleep(5.0)
 
+    # Wait to start the node until the node is fully registered on-chain
+    # NOTE: Once a node registers on-chain, it will not be considered fully registered to other nodes
+    # until the following epoch to ensure it starts on a fresh epoch.
     if start_epoch is not None:
         slot = hypertensor.get_subnet_slot(args.subnet_id)
         slot = int(str(slot))

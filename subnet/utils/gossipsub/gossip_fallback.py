@@ -40,7 +40,7 @@ logging.basicConfig(
 logger = logging.getLogger("gossip_fallback/1.0.0")
 
 # Protocol ID - this must match between all peers using this protocol
-PROTOCOL_ID = "/subnet/gossip_fallback/1.0.0"
+PROTOCOL_ID = "/gossip_fallback/1.0.0"
 MAX_READ_LEN = 2**32 - 1
 
 

@@ -231,7 +231,6 @@ async def maintain_single_gossipsub_connection(
             )
             return
 
-        logger.debug(f"maintain_single_gossipsub_connection, Adding peer to gossipsub: {peer_id}")
         gossipsub.add_peer(peer_id, GOSSIPSUB_PROTOCOL_ID)
         logger.debug(f"maintain_single_gossipsub_connection, Added peer to gossipsub: {peer_id}")
     except Exception as e:
