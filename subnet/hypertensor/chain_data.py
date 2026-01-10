@@ -285,6 +285,17 @@ custom_rpc_type_registry = {
                 ["key_types", "BTreeSet<KeyType>"],
             ],
         },
+        "OverwatchNodeInfo": {
+            "type": "struct",
+            "type_mapping": [
+                ["overwatch_node_id", "u32"],
+                ["coldkey", "[u8; 20]"],
+                ["hotkey", "Option<[u8; 20]>"],
+                ["peer_ids", "BTreeMap<u32, PeerId>"],
+                ["reputation", "Reputation"],
+                ["account_overwatch_stake", "u128"],
+            ],
+        },
         "PeerId": "Vec<u8>",
         "BTreeSet<KeyType>": "Vec<KeyType>",
         "BTreeSet<[u8; 20]>": "Vec<[u8; 20]>",
@@ -301,7 +312,8 @@ custom_rpc_type_registry = {
         "BTreeMap<[u8; 20], u32>": "Vec<([u8; 20], u32)>",
         "BTreeMap<AccountId20, u32>": "Vec<([u8; 20], u32)>",
         "BTreeMap<PeerId, BoundedVec<u8, DefaultMaxVectorLength>>": "Vec<(Vec<u8>, Vec<u8>)>",
-        "BTreeMap<PeerId, Option<BoundedVec<u8, DefaultMaxVectorLength>>>": "BTreeMap<PeerId, BoundedVec<u8, DefaultMaxVectorLength>>",
+        "BTreeMap<PeerId, Option<BoundedVec<u8, DefaultMaxVectorLength>>>": "BTreeMap<PeerId, BoundedVec<u8, DefaultMaxVectorLength>>",  # noqa: E501
+        "BTreeMap<u32, PeerId>": "Vec<(u32, Vec<u8>)>",
     }
 }
 
@@ -323,6 +335,7 @@ class ChainDataType(Enum):
     SubnetNodeStakeInfo = 10
     DelegateStakeInfo = 11
     NodeDelegateStakeInfo = 12
+    OverwatchNodeInfo = 13
 
 
 def from_scale_encoding(
@@ -1540,3 +1553,95 @@ class NodeDelegateStakeInfo:
     def _get_null() -> "NodeDelegateStakeInfo":
         data = NodeDelegateStakeInfo(subnet_id=0, subnet_node_id=0, shares=0, balance=0)
         return data
+
+
+@dataclass
+class OverwatchNodeInfo:
+    """
+    Dataclass for Overwatch node info.
+    """
+
+    overwatch_node_id: int
+    coldkey: str
+    hotkey: str
+    peer_ids: dict
+    reputation: dict
+    account_overwatch_stake: int
+
+    @classmethod
+    def fix_decoded_values(cls, data_decoded: Any) -> "OverwatchNodeInfo":
+        """Fixes the values of the OverwatchNodeInfo object."""
+        data_decoded["overwatch_node_id"] = data_decoded["overwatch_node_id"]
+        data_decoded["coldkey"] = data_decoded["coldkey"]
+        data_decoded["hotkey"] = data_decoded["hotkey"]
+        data_decoded["peer_ids"] = data_decoded["peer_ids"]
+        data_decoded["reputation"] = data_decoded["reputation"]
+        data_decoded["account_overwatch_stake"] = data_decoded["account_overwatch_stake"]
+
+        return cls(**data_decoded)
+
+    @classmethod
+    def from_vec_u8(cls, vec_u8: List[int]) -> "OverwatchNodeInfo":
+        """Returns a OverwatchNodeInfo object from a ``vec_u8``."""
+        if len(vec_u8) == 0:
+            return OverwatchNodeInfo._get_null()
+
+        decoded = from_scale_encoding(vec_u8, ChainDataType.OverwatchNodeInfo, is_option=True)
+
+        if decoded is None:
+            return OverwatchNodeInfo._get_null()
+
+        decoded = OverwatchNodeInfo.fix_decoded_values(decoded)
+
+        return decoded
+
+    @classmethod
+    def list_from_vec_u8(cls, vec_u8: List[int]) -> List["OverwatchNodeInfo"]:
+        """Returns a list of OverwatchNodeInfo objects from a ``vec_u8``."""
+        decoded_list = from_scale_encoding(vec_u8, ChainDataType.OverwatchNodeInfo, is_vec=True)
+        if decoded_list is None:
+            return []
+
+        decoded_list = [OverwatchNodeInfo.fix_decoded_values(decoded) for decoded in decoded_list]
+        return decoded_list
+
+    @staticmethod
+    def _overwatch_node_info_to_namespace(data) -> "OverwatchNodeInfo":
+        """
+        Converts a SubnetNodeInfo object to a namespace.
+
+        Args:
+          data (SubnetNodeInfo): The SubnetNodeInfo object.
+
+        Returns:
+          SubnetNodeInfo: The SubnetNodeInfo object.
+
+        """
+        data = OverwatchNodeInfo(**data)
+
+        return data
+
+    @staticmethod
+    def _get_null() -> "OverwatchNodeInfo":
+        overwatch_node_info = OverwatchNodeInfo(
+            overwatch_node_id=0,
+            coldkey="000000000000000000000000000000000000000000000000",
+            hotkey="000000000000000000000000000000000000000000000000",
+            peer_ids=dict(),
+            reputation=dict(),
+            account_overwatch_stake=0,
+        )
+        return overwatch_node_info
+
+
+@dataclass
+class OverwatchCommit:
+    subnet_id: int
+    weight: bytes
+
+
+@dataclass
+class OverwatchReveals:
+    subnet_id: int
+    weight: int
+    salt: bytes

@@ -28,6 +28,7 @@ from subnet.db.database import RocksDB
 from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.server.server import Server
+from subnet.utils.crypto.store_key import get_key_pair
 
 load_dotenv(os.path.join(Path.cwd(), ".env"))
 
@@ -54,7 +55,7 @@ Examples:
 # Start bootnode (or start bootnode through `run_bootnode`)
 
 python -m subnet.cli.run_node \
---private_key_path alith-ed25519.key \
+--private_key_path bootnode.key \
 --port 38960 \
 --subnet_id 1 \
 --subnet_node_id 1 \
@@ -64,60 +65,69 @@ python -m subnet.cli.run_node \
 # Connect to bootnode
 
 python -m subnet.cli.run_node \
---private_key_path baltathar-ed25519.key \
+--private_key_path alith.key \
 --port 38961 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 1 \
 --no_blockchain_rpc
 
 python -m subnet.cli.run_node \
---private_key_path charleth-ed25519.key \
+--private_key_path baltathar.key \
 --port 38962 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 2 \
 --no_blockchain_rpc
 
 python -m subnet.cli.run_node \
---private_key_path dorothy.key \
+--private_key_path charleth.key \
 --port 38963 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 3 \
 --no_blockchain_rpc
 
 python -m subnet.cli.run_node \
---private_key_path faith.key \
+--private_key_path dorothy.key \
 --port 38964 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 4 \
 --no_blockchain_rpc
 
 python -m subnet.cli.run_node \
---private_key_path george.key \
+--private_key_path faith.key \
 --port 38965 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 5 \
 --no_blockchain_rpc
 
 python -m subnet.cli.run_node \
---private_key_path harry.key \
+--private_key_path george.key \
 --port 38966 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 6 \
 --no_blockchain_rpc
 
 python -m subnet.cli.run_node \
---private_key_path ian.key \
+--private_key_path harry.key \
 --port 38967 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 7 \
 --no_blockchain_rpc
+
+python -m subnet.cli.run_node \
+--private_key_path ian.key \
+--port 38968 \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
+--subnet_id 1 \
+--subnet_node_id 8 \
+--no_blockchain_rpc
+
 
 # Run locally with local RPC connection
 
@@ -129,7 +139,7 @@ python -m subnet.cli.run_node \
 # Start nodes
 
 python -m subnet.cli.run_node \
---private_key_path alith-ed25519.key \
+--private_key_path bootnode.key \
 --port 38960 \
 --subnet_id 1 \
 --subnet_node_id 1 \
@@ -139,25 +149,25 @@ python -m subnet.cli.run_node \
 # Connect to bootnode
 
 python -m subnet.cli.run_node \
---private_key_path baltathar-ed25519.key \
+--private_key_path alith.key \
 --port 38961 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 1 \
 --local_rpc
 
 python -m subnet.cli.run_node \
---private_key_path charleth-ed25519.key \
+--private_key_path baltathar.key \
 --port 38962 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 2 \
 --local_rpc
 
 python -m subnet.cli.run_node \
---private_key_path dorothy.key \
+--private_key_path charleth.key \
 --port 38963 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 3 \
 --local_rpc
@@ -269,18 +279,7 @@ def main() -> None:
     if args.private_key_path is None:
         key_pair = create_new_key_pair(secrets.token_bytes(32))
     else:
-        with open(f"{args.private_key_path}", "rb") as f:
-            data = f.read()
-        private_key = crypto_pb2.PrivateKey.FromString(data)
-        if private_key.Type == crypto_pb2.KeyType.Ed25519:
-            private_key = Ed25519PrivateKey.from_bytes(private_key.Data)
-        elif private_key.Type == crypto_pb2.KeyType.Secp256k1:
-            private_key = Secp256k1PrivateKey.from_bytes(private_key.Data)
-        else:
-            raise ValueError("Unsupported key type")
-
-    public_key = private_key.get_public_key()
-    key_pair = KeyPair(private_key, public_key)
+        key_pair = get_key_pair(args.private_key_path)
 
     if not args.base_path:
         base_path = f"/tmp/{random.randint(100, 1000000)}"
@@ -365,9 +364,8 @@ def main() -> None:
             bootnode_peer_id="",
             client_peer_id="",
             reset_db=True if not args.bootstrap else False,
+            insert_mock_overwatch_node=True if not args.bootstrap else False,
         )
-        # Give time for database to be written
-        # time.sleep(5.0)
 
     # Wait to start the node until the node is fully registered on-chain
     # NOTE: Once a node registers on-chain, it will not be considered fully registered to other nodes

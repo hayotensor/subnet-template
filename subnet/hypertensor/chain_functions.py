@@ -20,6 +20,7 @@ from subnet.hypertensor.chain_data import (
     ConsensusData,
     DelegateStakeInfo,
     NodeDelegateStakeInfo,
+    OverwatchNodeInfo,
     SubnetData,
     SubnetInfo,
     SubnetNode,
@@ -1868,6 +1869,43 @@ class Hypertensor:
 
         return make_rpc_request()
 
+    def get_overwatch_node_info(
+        self,
+        overwatch_node_id: int,
+    ):
+        @retry(wait=wait_fixed(BLOCK_SECS + 1), stop=stop_after_attempt(4))
+        def make_rpc_request():
+            try:
+                with self.interface as _interface:
+                    data = _interface.rpc_request(
+                        method="network_getOverwatchNodeInfo",
+                        params=[
+                            overwatch_node_id,
+                        ],
+                    )
+                    return data
+            except SubstrateRequestException as e:
+                logger.error("Failed to get rpc request: {}".format(e))
+
+        return make_rpc_request()
+
+    def get_all_overwatch_nodes_info(
+        self,
+    ):
+        @retry(wait=wait_fixed(BLOCK_SECS + 1), stop=stop_after_attempt(4))
+        def make_rpc_request():
+            try:
+                with self.interface as _interface:
+                    data = _interface.rpc_request(
+                        method="network_getAllOverwatchNodesInfo",
+                        params=[],
+                    )
+                    return data
+            except SubstrateRequestException as e:
+                logger.error("Failed to get rpc request: {}".format(e))
+
+        return make_rpc_request()
+
     """
   Events
   """
@@ -1899,7 +1937,7 @@ class Hypertensor:
                                 break
                     return data
             except SubstrateRequestException as e:
-                logger.error("Failed to get rpc request: {}".format(e))
+                logger.error("Failed to get event request: {}".format(e))
 
         return make_event_query()
 
@@ -2278,24 +2316,6 @@ class Hypertensor:
             logger.error(f"Error get_min_class_subnet_nodes_formatted={e}", exc_info=True)
             return []
 
-    # def get_subnet_node_info_formatted(self, subnet_id: int, subnet_node_id: int) -> Optional["SubnetNodeInfo"]:
-    #     """
-    #     Get formatted list of subnet nodes classified as Validator
-
-    #     :param subnet_id: subnet ID
-
-    #     :returns: List of subnet node IDs
-    #     """
-    #     try:
-    #         result = self.get_subnet_node_info(subnet_id, subnet_node_id)
-
-    #         subnet_node = SubnetNodeInfo.from_vec_u8(result["result"])
-
-    #         return subnet_node
-    #     except Exception as e:
-    #         logger.error(f"Error get_subnet_node_data_formatted={e}", exc_info=True)
-    #         return None
-
     def update_bootnodes(
         self,
         subnet_id: int,
@@ -2353,3 +2373,30 @@ class Hypertensor:
                 logger.error("Failed to get rpc request: {}".format(e))
 
         return make_query()
+
+    def get_overwatch_node_info_formatted(self, overwatch_node_id: int) -> Optional["OverwatchNodeInfo"]:
+        """
+        Get formatted list of Overwatch nodes
+
+        :param overwatch_node_id: Overwatch node ID
+
+        :returns: Overwatch node info
+        """
+        try:
+            result = self.get_overwatch_node_info(overwatch_node_id)
+
+            overwatch_node_info = OverwatchNodeInfo.from_vec_u8(result["result"])
+
+            return overwatch_node_info
+        except Exception:
+            return None
+
+    def get_all_overwatch_nodes_info_formatted(self) -> Optional[List["OverwatchNodeInfo"]]:
+        try:
+            result = self.get_all_overwatch_nodes_info()
+
+            overwatch_nodes_info = OverwatchNodeInfo.list_from_vec_u8(result["result"])
+
+            return overwatch_nodes_info
+        except Exception:
+            return None

@@ -11,6 +11,9 @@ from subnet.hypertensor.chain_data import (
     Attest,
     AttestEntry,
     ConsensusData,
+    OverwatchCommit,
+    OverwatchNodeInfo,
+    OverwatchReveals,
     SubnetInfo,
     SubnetNode,
     SubnetNodeConsensusData,
@@ -18,11 +21,13 @@ from subnet.hypertensor.chain_data import (
 )
 from subnet.hypertensor.chain_functions import (
     EpochData,
+    OverwatchEpochData,
     SubnetNodeClass,
     subnet_node_class_to_enum,
 )
 from subnet.hypertensor.config import BLOCK_SECS, EPOCH_LENGTH
 from subnet.hypertensor.mock.mock_db import MockDatabase  # assume separate file
+from subnet.utils.crypto.store_key import get_peer_id
 
 # Configure logging
 logging.basicConfig(
@@ -44,12 +49,69 @@ class LocalMockHypertensor:
         bootnode_peer_id: str,
         client_peer_id: str,
         reset_db: bool = False,
+        insert_mock_overwatch_node: bool = False,
+        insert_mock_subnet_nodes: tuple[bool, int] = (False, 0),
     ):
         # Initialize database
         self.db = MockDatabase()
         if reset_db:
             logger.info("Resetting database")
             self.db.reset_database()
+
+        if insert_mock_overwatch_node:
+            # Insert mock overwatch node for testing (see overwatch node repo)
+            self.insert_overwatch_node(
+                overwatch_node_id=1,
+                coldkey="",
+                hotkey="",
+                peer_id=PeerID.from_base58("12D3KooWHNjWMaBA4eW4KyrzPfduh6e7CQ91iqXfZ69ZLSNW1m6Q").to_base58(),
+            )
+
+        if insert_mock_subnet_nodes[0]:
+            print("Inserting mock subnet nodes (make sure nodes are running)")
+            # Insert mock bootnodes
+            try:
+                bootnode_peer_id = get_peer_id("bootnode.key")
+                self.db.insert_bootnode(
+                    subnet_id=subnet_id,
+                    peer_id=bootnode_peer_id.to_base58(),
+                    bootnode=f"/ip4/127.0.0.1/tcp/38960/p2p/{bootnode_peer_id.to_base58()}",
+                )
+            except Exception as e:
+                logger.error(f"Error inserting bootnode: {e}")
+                pass
+
+            # Insert mock subnet nodes for testing
+            # Get all .key files from root directory in alphabetical order
+            import glob
+            import os
+
+            root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            key_files = sorted(glob.glob(os.path.join(root_dir, "*.key")))
+            print("Found key files: ", key_files)
+
+            # Insert subnet nodes up to the specified count
+            id = 1
+            for i in range(min(len(key_files), insert_mock_subnet_nodes[1])):
+                key_path = key_files[i]
+                if key_path is None:
+                    break
+                if "bootnode.key" in key_path:
+                    print(f"Skipping {key_path}")
+                    continue
+                if "overwatch.key" in key_path:
+                    print(f"Skipping {key_path}")
+                    continue
+                subnet_node_peer_id = get_peer_id(key_path)
+                print(f"Inserting subnet node: {subnet_node_peer_id}, ID: {id}, with path: {key_path}")
+                self.insert_subnet_node(
+                    subnet_id=subnet_id,
+                    subnet_node_id=id,
+                    peer_id=subnet_node_peer_id.to_base58(),
+                    bootnode_peer_id="",
+                    client_peer_id="",
+                )
+                id += 1
 
         self.subnet_id = subnet_id
         self.peer_id = peer_id
@@ -62,66 +124,12 @@ class LocalMockHypertensor:
         # Only store if not bootnode, use `subnet_node_id=0` if bootnode
         if subnet_node_id != 0:
             # Register this node
-            self.db.insert_subnet_node(
-                # subnet_id=self.subnet_id,
-                # node_info=dict(
-                #     subnet_node_id=self.subnet_node_id,
-                #     peer_id=self.peer_id.to_base58(),
-                #     coldkey=self.coldkey,
-                #     hotkey=self.hotkey,
-                #     bootnode_peer_id=self.bootnode_peer_id,
-                #     client_peer_id=self.client_peer_id,
-                #     bootnode="",
-                #     identity="",
-                #     classification={
-                #         "node_class": "Validator",
-                #         "start_epoch": self.get_epoch(),
-                #     },
-                #     delegate_reward_rate=0,
-                #     last_delegate_reward_rate_update=0,
-                #     unique="",
-                #     non_unique="",
-                #     stake_balance=int(1e18),
-                #     node_delegate_stake_balance=0,
-                #     penalties=0,
-                #     coldkey_reputation=int(1e18),
-                subnet_id=self.subnet_id,
-                node_info=dict(
-                    subnet_node_id=self.subnet_node_id,
-                    coldkey=self.coldkey,
-                    hotkey=self.hotkey,
-                    peer_id=self.peer_id.to_base58(),
-                    bootnode_peer_id=self.bootnode_peer_id,
-                    client_peer_id=self.client_peer_id,
-                    bootnode="",
-                    identity="",
-                    classification={
-                        "node_class": "Validator",
-                        "start_epoch": self.get_epoch(),
-                    },
-                    delegate_reward_rate=0,
-                    last_delegate_reward_rate_update=0,
-                    unique="",
-                    non_unique="",
-                    stake_balance=int(1e18),
-                    total_node_delegate_stake_shares=int(1e18),
-                    node_delegate_stake_balance=int(1e18),
-                    coldkey_reputation={
-                        "start_epoch": self.get_epoch(),
-                        "score": int(1e18),
-                        "lifetime_node_count": int(1e18),
-                        "total_active_nodes": int(1e18),
-                        "total_increases": int(1e18),
-                        "total_decreases": int(1e18),
-                        "average_attestation": int(1e18),
-                        "last_validator_epoch": 0,
-                        "ow_score": int(1e18),
-                    },
-                    subnet_node_reputation=int(1e18),
-                    node_slot_index=self.subnet_node_id,
-                    consecutive_idle_epochs=0,
-                    consecutive_included_epochs=0,
-                ),
+            self.insert_subnet_node(
+                subnet_id=1,
+                subnet_node_id=self.subnet_node_id,
+                peer_id=self.peer_id.to_base58(),
+                bootnode_peer_id=self.bootnode_peer_id,
+                client_peer_id=self.client_peer_id,
             )
         else:
             self.db.insert_bootnode(
@@ -129,6 +137,83 @@ class LocalMockHypertensor:
                 peer_id=self.peer_id.to_base58(),
                 bootnode="",
             )
+
+    def insert_subnet_node(
+        self,
+        subnet_id: int,
+        subnet_node_id: int,
+        peer_id: str,
+        bootnode_peer_id: str = "",
+        client_peer_id: str = "",
+    ):
+        self.db.insert_subnet_node(
+            subnet_id=subnet_id,
+            node_info=dict(
+                subnet_node_id=subnet_node_id,
+                coldkey="",
+                hotkey="",
+                peer_id=peer_id,
+                bootnode_peer_id=bootnode_peer_id,
+                client_peer_id=client_peer_id,
+                bootnode="",
+                identity="",
+                classification={
+                    "node_class": "Validator",
+                    "start_epoch": self.get_epoch(),
+                },
+                delegate_reward_rate=0,
+                last_delegate_reward_rate_update=0,
+                unique="",
+                non_unique="",
+                stake_balance=int(1e18),
+                total_node_delegate_stake_shares=int(1e18),
+                node_delegate_stake_balance=int(1e18),
+                coldkey_reputation={
+                    "start_epoch": self.get_epoch(),
+                    "score": int(1e18),
+                    "lifetime_node_count": int(1e18),
+                    "total_active_nodes": int(1e18),
+                    "total_increases": int(1e18),
+                    "total_decreases": int(1e18),
+                    "average_attestation": int(1e18),
+                    "last_validator_epoch": 0,
+                    "ow_score": int(1e18),
+                },
+                subnet_node_reputation=int(1e18),
+                node_slot_index=subnet_node_id,
+                consecutive_idle_epochs=0,
+                consecutive_included_epochs=0,
+            ),
+        )
+
+    def insert_overwatch_node(
+        self,
+        overwatch_node_id: int,
+        coldkey: str,
+        hotkey: str,
+        peer_id: str,
+    ):
+        self.db.insert_overwatch_node(
+            overwatch_node_id=overwatch_node_id,
+            node_info=dict(
+                overwatch_node_id=overwatch_node_id,
+                coldkey=coldkey,
+                hotkey=hotkey,
+                peer_ids={i: peer_id for i in range(1, 16)},
+                reputation={
+                    "start_epoch": self.get_epoch(),
+                    "score": int(1e18),
+                    "lifetime_node_count": int(1e18),
+                    "total_active_nodes": int(1e18),
+                    "total_increases": int(1e18),
+                    "total_decreases": int(1e18),
+                    "average_attestation": int(1e18),
+                    "last_validator_epoch": 0,
+                    "ow_score": int(1e18),
+                },
+                account_overwatch_stake=int(1e18),
+            ),
+        )
 
     def propose_attestation(
         self,
@@ -348,6 +433,50 @@ class LocalMockHypertensor:
             seconds_remaining=seconds_remaining,
         )
 
+    def get_overwatch_epoch_multiplier(self):
+        return 6
+
+    def get_overwatch_commit_cutoff_percent(self):
+        return 0.9e18
+
+    def get_overwatch_epoch_data(self) -> EpochData:
+        current_block = self.get_block_number()
+        epoch_length = self.get_epoch_length()
+        current_block = int(str(current_block))
+        epoch_length = int(str(epoch_length))
+        epoch = current_block // epoch_length
+        blocks_elapsed = current_block % epoch_length
+        percent_complete = blocks_elapsed / epoch_length
+        blocks_remaining = epoch_length - blocks_elapsed
+        seconds_elapsed = blocks_elapsed * BLOCK_SECS
+        seconds_remaining = blocks_remaining * BLOCK_SECS
+
+        multiplier = self.get_overwatch_epoch_multiplier()
+        overwatch_epoch_length = epoch_length * multiplier
+        overwatch_epoch = current_block // overwatch_epoch_length
+        cutoff_percentage = float(self.get_overwatch_commit_cutoff_percent() / 1e18)
+        block_increase_cutoff = overwatch_epoch_length * cutoff_percentage
+        epoch_cutoff_block = overwatch_epoch_length * epoch + block_increase_cutoff
+
+        if current_block > epoch_cutoff_block:
+            seconds_remaining_until_reveal = 0
+        else:
+            seconds_remaining_until_reveal = epoch_cutoff_block - current_block
+
+        return OverwatchEpochData(
+            block=current_block,
+            epoch=epoch,
+            overwatch_epoch=overwatch_epoch,
+            block_per_epoch=epoch_length,
+            seconds_per_epoch=epoch_length * BLOCK_SECS,
+            percent_complete=percent_complete,
+            blocks_elapsed=blocks_elapsed,
+            blocks_remaining=blocks_remaining,
+            seconds_elapsed=seconds_elapsed,
+            seconds_remaining=seconds_remaining,
+            seconds_remaining_until_reveal=seconds_remaining_until_reveal,
+        )
+
     def get_rewards_validator(self, subnet_id: int, epoch: int):
         subnet_nodes = self.get_min_class_subnet_nodes_formatted(subnet_id, epoch, SubnetNodeClass.Validator)
 
@@ -369,6 +498,7 @@ class LocalMockHypertensor:
             qualified_nodes = []
 
             for node_dict in subnet_nodes:
+                print("get_min_class_subnet_nodes_formatted Node dict: ", node_dict)
                 classification_data = node_dict.get("classification", {})
 
                 if isinstance(classification_data, str):
@@ -393,6 +523,15 @@ class LocalMockHypertensor:
                 start_epoch = classification.get("start_epoch", 0)
 
                 node_class_enum = subnet_node_class_to_enum(node_class_name)
+
+                print(
+                    f"node_class_enum.value ({node_class_enum.value}) >= min_class.value ({min_class.value}): ",
+                    node_class_enum.value >= min_class.value,
+                )
+                print(
+                    f"start_epoch ({start_epoch}) <= subnet_epoch ({subnet_epoch}): ",
+                    start_epoch <= subnet_epoch,
+                )
 
                 if node_class_enum.value >= min_class.value and start_epoch <= subnet_epoch:
                     qualified_nodes.append(
@@ -485,7 +624,95 @@ class LocalMockHypertensor:
 
             return qualified_nodes
         except Exception as e:
-            logger.warning(f"[WARN] get_min_class_subnet_nodes_formatted error: {e}", exc_info=True)
+            logger.warning(f"[WARN] get_subnet_nodes_info_formatted error: {e}", exc_info=True)
+            return []
+
+    def get_overwatch_node_info_formatted(self, overwatch_node_id: int) -> Optional["OverwatchNodeInfo"]:
+        try:
+            overwatch_nodes = self.db.get_all_overwatch_nodes()
+
+            if not overwatch_nodes:
+                return None
+
+            for overwatch_node in overwatch_nodes:
+                if overwatch_node["overwatch_node_id"] == overwatch_node_id:
+                    break
+
+            if not overwatch_node:
+                return None
+
+            reputation_data = overwatch_node.get("reputation", {})
+
+            if isinstance(reputation_data, str):
+                try:
+                    reputation = json.loads(reputation_data)
+                except json.JSONDecodeError:
+                    reputation = {}
+            else:
+                reputation = reputation_data
+
+            peer_ids_data = overwatch_node.get("peer_ids", {})
+
+            if isinstance(peer_ids_data, str):
+                try:
+                    peer_ids = json.loads(peer_ids_data)
+                except json.JSONDecodeError:
+                    peer_ids = {}
+            else:
+                peer_ids = peer_ids_data
+
+            return OverwatchNodeInfo(
+                overwatch_node_id=overwatch_node["overwatch_node_id"],
+                coldkey=overwatch_node["coldkey"],
+                hotkey=overwatch_node["hotkey"],
+                peer_ids=peer_ids,
+                reputation=reputation,
+                account_overwatch_stake=int(overwatch_node.get("account_overwatch_stake", 0)),
+            )
+        except Exception as e:
+            logger.warning(f"[WARN] get_overwatch_node_info_formatted error: {e}", exc_info=True)
+            return None
+
+    def get_all_overwatch_nodes_info_formatted(self) -> Optional[List["OverwatchNodeInfo"]]:
+        try:
+            overwatch_nodes = self.db.get_all_overwatch_nodes()
+            all_overwatch_nodes = []
+
+            for node_dict in overwatch_nodes:
+                reputation_data = node_dict.get("reputation", {})
+
+                if isinstance(reputation_data, str):
+                    try:
+                        reputation = json.loads(reputation_data)
+                    except json.JSONDecodeError:
+                        reputation = {}
+                else:
+                    reputation = reputation_data
+
+                peer_ids_data = node_dict.get("peer_ids", {})
+
+                if isinstance(peer_ids_data, str):
+                    try:
+                        peer_ids = json.loads(peer_ids_data)
+                    except json.JSONDecodeError:
+                        peer_ids = {}
+                else:
+                    peer_ids = peer_ids_data
+
+                all_overwatch_nodes.append(
+                    OverwatchNodeInfo(
+                        overwatch_node_id=int(node_dict["overwatch_node_id"]),
+                        coldkey=node_dict["coldkey"],
+                        hotkey=node_dict["hotkey"],
+                        peer_ids=peer_ids,
+                        reputation=reputation,
+                        account_overwatch_stake=int(node_dict.get("account_overwatch_stake", 0)),
+                    )
+                )
+
+            return all_overwatch_nodes
+        except Exception as e:
+            logger.warning(f"[WARN] get_all_overwatch_nodes_info_formatted error: {e}", exc_info=True)
             return []
 
     def get_validators_and_attestors(
@@ -506,6 +733,16 @@ class LocalMockHypertensor:
                         classification = {}
                 else:
                     classification = classification_data
+
+                coldkey_reputation_data = node_dict.get("coldkey_reputation", {})
+
+                if isinstance(coldkey_reputation_data, str):
+                    try:
+                        coldkey_reputation = json.loads(coldkey_reputation_data)
+                    except json.JSONDecodeError:
+                        coldkey_reputation = {}
+                else:
+                    coldkey_reputation = coldkey_reputation_data
 
                 node_class_name = classification.get("node_class", "Validator")
 
@@ -531,7 +768,7 @@ class LocalMockHypertensor:
                             stake_balance=int(node_dict.get("stake_balance", 0)),
                             total_node_delegate_stake_shares=int(node_dict.get("total_node_delegate_stake_shares", 0)),
                             node_delegate_stake_balance=0,
-                            coldkey_reputation=int(node_dict.get("coldkey_reputation", 0)),
+                            coldkey_reputation=coldkey_reputation,
                             subnet_node_reputation=int(node_dict.get("subnet_node_reputation", 0)),
                             node_slot_index=0,
                             consecutive_idle_epochs=0,
@@ -682,3 +919,24 @@ class LocalMockHypertensor:
         except Exception as e:
             logger.error(f"Error getting bootnodes: {e}")
             return None
+
+    def register_overwatch_node(
+        self,
+        hotkey: str,
+        stake_to_be_added: int,
+    ):
+        pass
+
+    def commit_overwatch_subnet_weights(
+        self,
+        overwatch_node_id: int,
+        commits: List["OverwatchCommit"],
+    ):
+        pass
+
+    def reveal_overwatch_subnet_weights(
+        self,
+        overwatch_node_id: int,
+        reveals: List["OverwatchReveals"],
+    ):
+        pass

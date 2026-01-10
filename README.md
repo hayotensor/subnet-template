@@ -59,7 +59,7 @@ Start the bootnode that doesn't participate in consensus
 
 ```bash
 python -m subnet.cli.run_node \
---private_key_path alith-ed25519.key \
+--private_key_path alith.key \
 --port 38960 \
 --subnet_id 1 \
 --no_blockchain_rpc \
@@ -73,7 +73,7 @@ python -m subnet.cli.run_node \
 
 ```bash
 python -m subnet.cli.run_node \
---private_key_path baltathar-ed25519.key \
+--private_key_path baltathar.key \
 --port 38961 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
 --subnet_id 1 \
@@ -85,7 +85,7 @@ python -m subnet.cli.run_node \
 
 ```bash
 python -m subnet.cli.run_node \
---private_key_path charleth-ed25519.key \
+--private_key_path charleth.key \
 --port 38962 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
 --subnet_id 1 \
@@ -135,9 +135,9 @@ register_subnet \
 
 #### Register Nodes
 
-##### Register Node ID 1 (Baltathar, baltathar-ed25519.key)
+##### Register Node ID 1 (Baltathar, baltathar.key)
 
-We use alith-ed25519.key as the bootnode of node ID to pass validation mechanisms like proof-of-stake and connection maintenance.
+We use alith.key as the bootnode of node ID to pass validation mechanisms like proof-of-stake and connection maintenance.
 
 ```bash
 register_node \
@@ -154,7 +154,7 @@ register_node \
 --local_rpc
 ```
 
-##### Register Node ID 2 (Charleth, charleth-ed25519.key)
+##### Register Node ID 2 (Charleth, charleth.key)
 
 ```bash
 register_node \
@@ -211,7 +211,7 @@ register_node \
 
 ```bash
 python -m subnet.cli.run_node \
---private_key_path alith-ed25519.key \
+--private_key_path alith.key \
 --port 38960 \
 --subnet_id 1 \
 --is_bootstrap \
@@ -220,11 +220,11 @@ python -m subnet.cli.run_node \
 
 ##### Start Node ID 1 (Baltathar)
 
-We use the bootnodes peer id (alith-ed25519.key) in node01's bootnode so Alith can connect (subnet requires on-chain proof-of-stake for connection).
+We use the bootnodes peer id (alith.key) in node01's bootnode so Alith can connect (subnet requires on-chain proof-of-stake for connection).
 
 ```bash
 python -m subnet.cli.run_node \
---private_key_path baltathar-ed25519.key \
+--private_key_path baltathar.key \
 --port 38961 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
 --subnet_id 1 \
@@ -237,7 +237,7 @@ python -m subnet.cli.run_node \
 
 ```bash
 python -m subnet.cli.run_node \
---private_key_path charleth-ed25519.key \
+--private_key_path charleth.key \
 --port 38962 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWAkRWUdmXy5tkGQ1oUKxx2W4sXxsWr4ekrcvLCbA3BQTf \
 --subnet_id 1 \

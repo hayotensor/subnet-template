@@ -5,7 +5,7 @@ from typing import Dict, Optional
 from libp2p.peer.id import ID as PeerID
 import trio
 
-from subnet.hypertensor.chain_data import AllSubnetBootnodes, SubnetNodeInfo
+from subnet.hypertensor.chain_data import AllSubnetBootnodes, OverwatchNodeInfo, SubnetNodeInfo
 from subnet.hypertensor.chain_functions import (
     EpochData,
     Hypertensor,
@@ -56,6 +56,7 @@ class SubnetInfoTracker:
         self.nodes: Optional[list[SubnetNodeInfo]] = None
         self.nodes_v2: Dict[int, list[SubnetNodeInfo]] = {}  # epoch -> nodes mapping
         self.bootnodes: Optional[AllSubnetBootnodes] = None
+        self.overwatch_nodes: Optional[list[OverwatchNodeInfo]] = None
         self.previous_interval: Optional[float] = None
         self.previous_interval_epoch: Dict[float, int] = {}
         for interval in self.epoch_update_intervals:
@@ -103,9 +104,9 @@ class SubnetInfoTracker:
         if self.nodes is not None or len(self.nodes) > 0:
             self.nodes_v2[self.epoch_data.epoch] = self.nodes
 
+        self.overwatch_nodes = self.hypertensor.get_all_overwatch_nodes_info_formatted()
         self.bootnodes = self.hypertensor.get_bootnodes_formatted(self.subnet_id)
         self.previous_interval_timestamp = int(time.time())
-        # self.previous_interval_timestamp = int(trio.current_time())
 
         # Start on fresh epoch
         if not self.started:
@@ -256,7 +257,17 @@ class SubnetInfoTracker:
                 except Exception:
                     continue
 
-        # TODO: Get overwatch node peer IDs
+        # Get overwatch node peer IDs matching the current subnet
+        for overwatch_node in self.overwatch_nodes:
+            peer_id_raw = overwatch_node.peer_ids.get(str(self.subnet_id))
+            if peer_id_raw is not None and peer_id_raw != "":
+                try:
+                    if isinstance(peer_id_raw, PeerID):
+                        all_ids.append(peer_id_raw)
+                    else:
+                        all_ids.append(PeerID.from_base58(str(peer_id_raw)))
+                except Exception:
+                    continue
 
         return all_ids
 
