@@ -34,22 +34,29 @@ async def maintain_connections(
     gossipsub: GossipSub | None = None,
     pubsub: Pubsub | None = None,
     dht: KadDHT | None = None,
+    connection_backoff_duration: float = 300.0,  # 5 minutes
+    max_backoff_duration: float = 1080.0,  # 18 minutes
+    retry_multiplier: float = 1.2,
 ) -> None:
     """Maintain connections to ensure the host remains connected to healthy peers."""
     my_peer_id = host.get_id()
     # Track recent connection attempts to prevent thrashing
     # recent_connection_attempts: dict[PeerID, float] = {}
-    # BACKOFF_DURATION = 300  # 5 minutes
+    # next_connection_attempts: dict[PeerID, float] = {}
+
+    # Track retries for each peer, and next retry time
+    peer_retries: dict[PeerID, int] = {}
+    peer_next_retry: dict[PeerID, float] = {}
 
     while True:
         try:
             onchain_peer_ids = await subnet_info_tracker.get_all_peer_ids(force=True)
-            logger.info(f"All peer IDs: {onchain_peer_ids}")
+            # logger.info(f"All peer IDs: {onchain_peer_ids}")
 
             connected_peers = host.get_connected_peers()
             list_peers = host.get_peerstore().peers_with_addrs()
 
-            logger.info(f"Connected peers: {connected_peers}")
+            # logger.info(f"Connected peers: {connected_peers}")
 
             if dht:
                 peerstore_peer_ids = dht.host.get_peerstore().peer_ids()
@@ -59,18 +66,27 @@ async def maintain_connections(
                         list_peers.append(peer_id)
 
             remove_peers = []
+
+            # Remove peers that are not in the onchain peer list and are connected
             # Use list copies to avoid issues with modification during iteration
             for peer_id in list(connected_peers):
                 if peer_id not in onchain_peer_ids and not peer_id.__eq__(my_peer_id):
                     remove_peers.append(peer_id)
                     connected_peers.remove(peer_id)
                     # recent_connection_attempts.pop(peer_id, None)
+                    # next_connection_attempts.pop(peer_id, None)
+                    peer_retries.pop(peer_id, None)
+                    peer_next_retry.pop(peer_id, None)
 
+            # Remove peers that are not in the onchain peer list and are in the peerstore
             for peer_id in list(list_peers):
                 if peer_id not in onchain_peer_ids and not peer_id.__eq__(my_peer_id):
                     remove_peers.append(peer_id)
                     list_peers.remove(peer_id)
                     # recent_connection_attempts.pop(peer_id, None)
+                    # next_connection_attempts.pop(peer_id, None)
+                    peer_retries.pop(peer_id, None)
+                    peer_next_retry.pop(peer_id, None)
 
             # Deduplicate the removal list
             remove_peers = list(set(remove_peers))
@@ -92,9 +108,17 @@ async def maintain_connections(
                 for peer_id in list_peers:
                     try:
                         peer_info = host.get_peerstore().peer_info(peer_id)
-                        if filter_compatible_peer_info(peer_info):
+                        # if (
+                        #     filter_compatible_peer_info(peer_info)
+                        #     and trio.current_time() - recent_connection_attempts.get(peer_id, 0)
+                        #     > connection_backoff_duration
+                        # ):
+                        if filter_compatible_peer_info(peer_info) and trio.current_time() >= peer_next_retry.get(
+                            peer_id, 0
+                        ):
                             compatible_peers.append(peer_id)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"Failed to get peer info for {peer_id}: {e}", exc_info=True)
                         continue
 
                 # Connect to random subset of compatible peers
@@ -103,6 +127,21 @@ async def maintain_connections(
                     for peer_id in random_peers:
                         if peer_id not in connected_peers and peer_id in onchain_peer_ids:
                             try:
+                                # recent_connection_attempts[peer_id] = trio.current_time()
+                                peer_retries[peer_id] = peer_retries.get(peer_id, 0) + 1
+                                next_retry_time = trio.current_time() + connection_backoff_duration * (
+                                    peer_retries.get(peer_id, 0) ** retry_multiplier
+                                )
+                                if next_retry_time > max_backoff_duration:
+                                    next_retry_time = max_backoff_duration
+                                peer_next_retry[peer_id] = next_retry_time
+
+                                if dht:
+                                    with trio.move_on_after(5):
+                                        peer_info = await dht.find_peer(peer_id)
+                                        if not peer_info:
+                                            continue
+
                                 with trio.move_on_after(5):
                                     peer_info = host.get_peerstore().peer_info(peer_id)
                                     logger.debug(f"Adding addresses for peer: {peer_id}")
@@ -111,7 +150,7 @@ async def maintain_connections(
                                     await host.connect(peer_info)
                                     logger.debug(f"Connected to peer: {peer_id}")
                             except Exception as e:
-                                logger.warning(f"Failed to connect to {peer_id}: {e}")
+                                logger.warning(f"Failed to connect to {peer_id}: {e}", exc_info=True)
 
             if gossipsub:
                 # Prune disconnected peers from gossipsub mesh
@@ -119,13 +158,6 @@ async def maintain_connections(
                 for topic_peers in gossipsub.mesh.values():
                     mesh_peers.update(topic_peers)
 
-                # for peer_id in mesh_peers:
-                #     if peer_id not in connected_peers:
-                #         logger.info(f"Pruning disconnected peer {peer_id} from gossipsub mesh")
-                #         gossipsub.remove_peer(peer_id)
-
-                ###
-                # Read only data
                 logger.debug(f"GossipSub mesh: {gossipsub.mesh}")
 
                 gossipsub_topic = next((t for t in gossipsub.mesh if str(t) == "heartbeat"), None)
@@ -147,7 +179,7 @@ async def maintain_connections(
                         if filter_compatible_peer_info(peer_info):
                             compatible_peers.append(peer_id)
                     except Exception as e:
-                        logger.debug(f"Failed to get peer info for {peer_id}: {e}")
+                        logger.warning(f"Failed to get peer info for {peer_id}: {e}", exc_info=True)
                         continue
                 random_peers = random.sample(compatible_peers, min(64, len(compatible_peers)))
                 random_peers = [p for p in random_peers if p in onchain_peer_ids and p not in topic_peers]
@@ -156,7 +188,7 @@ async def maintain_connections(
 
             await trio.sleep(15)
         except Exception as e:
-            logger.error(f"Error maintaining connections: {e}")
+            logger.error(f"Error maintaining connections: {e}", exc_info=True)
 
 
 async def maintain_gossipsub_connections(
@@ -206,8 +238,9 @@ async def maintain_single_gossipsub_connection(
                 host.get_peerstore().add_protocols(peer_id, ["/meshsub/1.0.0"])
                 return
         except Exception as e:
-            logger.debug(
-                f"maintain_single_gossipsub_connection, Failed to get protocols for {peer_id} with: {e}"  # noqa: E501
+            logger.warning(
+                f"maintain_single_gossipsub_connection, Failed to get protocols for {peer_id} with: {e}",
+                exc_info=True,
             )
             return
 
@@ -247,9 +280,9 @@ async def disconnect_peers(
         # Remove from host
         try:
             await host.disconnect(peer_id)
-            logger.info(
-                f"Disconnected peer {peer_id} because they are no longer registered on-chain"  # noqa: E501
-            )
+            # logger.info(
+            #     f"Disconnected peer {peer_id} because they are no longer registered on-chain"  # noqa: E501
+            # )
 
             # Clear from peerstore so we stop dialing them
             # clear_peerdata completely removes the peer record from all internal maps
@@ -258,7 +291,7 @@ async def disconnect_peers(
                 f"Fully cleared peer {peer_id} from peerstore because they are no longer registered on-chain"  # noqa: E501
             )
         except Exception as e:
-            logger.warning(f"Failed to disconnect peer {peer_id}: {e}")
+            logger.warning(f"Failed to disconnect peer {peer_id}: {e}", exc_info=True)
         if dht:
             # Remove from DHT routing table
             try:
@@ -266,7 +299,7 @@ async def disconnect_peers(
                 dht.host.get_peerstore().clear_peerdata(peer_id)
                 logger.debug(f"Removed peer {peer_id} from routing table and cleared peerdata")
             except Exception as e:
-                logger.warning(f"Failed to remove peer {peer_id}: {e}")
+                logger.warning(f"Failed to remove peer {peer_id}: {e}", exc_info=True)
         if gossipsub:
             # Remove from GossipSub
             try:
@@ -275,15 +308,15 @@ async def disconnect_peers(
                     f"Removed peer {peer_id} from gossipsub because they are no longer registered on-chain"  # noqa: E501
                 )
             except Exception as e:
-                logger.warning(f"Failed to remove peer {peer_id}: {e}")
+                logger.warning(f"Failed to remove peer {peer_id}: {e}", exc_info=True)
 
 
 async def demonstrate_random_walk_discovery(dht: KadDHT, interval: int = 30) -> None:
     """Demonstrate Random Walk peer discovery with periodic statistics."""
     while True:
-        logger.info(f"Routing table size: {dht.get_routing_table_size()}")
-        logger.info(f"Connected peers: {len(dht.host.get_connected_peers())}")
-        logger.info(f"Peerstore size: {len(dht.host.get_peerstore().peer_ids())}")
+        # logger.info(f"Routing table size: {dht.get_routing_table_size()}")
+        # logger.info(f"Connected peers: {len(dht.host.get_connected_peers())}")
+        # logger.info(f"Peerstore size: {len(dht.host.get_peerstore().peer_ids())}")
 
         if dht.get_routing_table_size() > 0:
             logger.debug("Peers in routing table:")

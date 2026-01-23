@@ -68,7 +68,6 @@ class LocalMockHypertensor:
             )
 
         if insert_mock_subnet_nodes[0]:
-            print("Inserting mock subnet nodes (make sure nodes are running)")
             # Insert mock bootnodes
             try:
                 bootnode_peer_id = get_peer_id("bootnode.key")
@@ -88,7 +87,6 @@ class LocalMockHypertensor:
 
             root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
             key_files = sorted(glob.glob(os.path.join(root_dir, "*.key")))
-            print("Found key files: ", key_files)
 
             # Insert subnet nodes up to the specified count
             id = 1
@@ -97,13 +95,10 @@ class LocalMockHypertensor:
                 if key_path is None:
                     break
                 if "bootnode.key" in key_path:
-                    print(f"Skipping {key_path}")
                     continue
                 if "overwatch.key" in key_path:
-                    print(f"Skipping {key_path}")
                     continue
                 subnet_node_peer_id = get_peer_id(key_path)
-                print(f"Inserting subnet node: {subnet_node_peer_id}, ID: {id}, with path: {key_path}")
                 self.insert_subnet_node(
                     subnet_id=subnet_id,
                     subnet_node_id=id,
@@ -199,7 +194,7 @@ class LocalMockHypertensor:
                 overwatch_node_id=overwatch_node_id,
                 coldkey=coldkey,
                 hotkey=hotkey,
-                peer_ids={i: peer_id for i in range(1, 16)},
+                peer_ids=[(i, peer_id) for i in range(1, 16)],
                 reputation={
                     "start_epoch": self.get_epoch(),
                     "score": int(1e18),
@@ -439,7 +434,7 @@ class LocalMockHypertensor:
     def get_overwatch_commit_cutoff_percent(self):
         return 0.9e18
 
-    def get_overwatch_epoch_data(self) -> EpochData:
+    def get_overwatch_epoch_data(self) -> OverwatchEpochData:
         current_block = self.get_block_number()
         epoch_length = self.get_epoch_length()
         current_block = int(str(current_block))
@@ -456,12 +451,12 @@ class LocalMockHypertensor:
         overwatch_epoch = current_block // overwatch_epoch_length
         cutoff_percentage = float(self.get_overwatch_commit_cutoff_percent() / 1e18)
         block_increase_cutoff = overwatch_epoch_length * cutoff_percentage
-        epoch_cutoff_block = overwatch_epoch_length * epoch + block_increase_cutoff
+        epoch_cutoff_block = overwatch_epoch_length * overwatch_epoch + block_increase_cutoff
 
         if current_block > epoch_cutoff_block:
             seconds_remaining_until_reveal = 0
         else:
-            seconds_remaining_until_reveal = epoch_cutoff_block - current_block
+            seconds_remaining_until_reveal = (epoch_cutoff_block - current_block) * BLOCK_SECS
 
         return OverwatchEpochData(
             block=current_block,
@@ -475,6 +470,7 @@ class LocalMockHypertensor:
             seconds_elapsed=seconds_elapsed,
             seconds_remaining=seconds_remaining,
             seconds_remaining_until_reveal=seconds_remaining_until_reveal,
+            epoch_cutoff_block=epoch_cutoff_block,
         )
 
     def get_rewards_validator(self, subnet_id: int, epoch: int):
@@ -498,7 +494,6 @@ class LocalMockHypertensor:
             qualified_nodes = []
 
             for node_dict in subnet_nodes:
-                print("get_min_class_subnet_nodes_formatted Node dict: ", node_dict)
                 classification_data = node_dict.get("classification", {})
 
                 if isinstance(classification_data, str):
@@ -523,15 +518,6 @@ class LocalMockHypertensor:
                 start_epoch = classification.get("start_epoch", 0)
 
                 node_class_enum = subnet_node_class_to_enum(node_class_name)
-
-                print(
-                    f"node_class_enum.value ({node_class_enum.value}) >= min_class.value ({min_class.value}): ",
-                    node_class_enum.value >= min_class.value,
-                )
-                print(
-                    f"start_epoch ({start_epoch}) <= subnet_epoch ({subnet_epoch}): ",
-                    start_epoch <= subnet_epoch,
-                )
 
                 if node_class_enum.value >= min_class.value and start_epoch <= subnet_epoch:
                     qualified_nodes.append(
@@ -651,15 +637,20 @@ class LocalMockHypertensor:
             else:
                 reputation = reputation_data
 
-            peer_ids_data = overwatch_node.get("peer_ids", {})
+            peer_ids_data = overwatch_node.get("peer_ids", [])
 
             if isinstance(peer_ids_data, str):
                 try:
-                    peer_ids = json.loads(peer_ids_data)
+                    peer_ids_raw = json.loads(peer_ids_data)
                 except json.JSONDecodeError:
-                    peer_ids = {}
+                    peer_ids_raw = []
             else:
-                peer_ids = peer_ids_data
+                peer_ids_raw = peer_ids_data
+
+            if isinstance(peer_ids_raw, dict):
+                peer_ids = [(int(k), v) for k, v in peer_ids_raw.items()]
+            else:
+                peer_ids = [tuple(item) for item in peer_ids_raw]
 
             return OverwatchNodeInfo(
                 overwatch_node_id=overwatch_node["overwatch_node_id"],
@@ -689,15 +680,20 @@ class LocalMockHypertensor:
                 else:
                     reputation = reputation_data
 
-                peer_ids_data = node_dict.get("peer_ids", {})
+                peer_ids_data = node_dict.get("peer_ids", [])
 
                 if isinstance(peer_ids_data, str):
                     try:
-                        peer_ids = json.loads(peer_ids_data)
+                        peer_ids_raw = json.loads(peer_ids_data)
                     except json.JSONDecodeError:
-                        peer_ids = {}
+                        peer_ids_raw = []
                 else:
-                    peer_ids = peer_ids_data
+                    peer_ids_raw = peer_ids_data
+
+                if isinstance(peer_ids_raw, dict):
+                    peer_ids = [(int(k), v) for k, v in peer_ids_raw.items()]
+                else:
+                    peer_ids = [tuple(item) for item in peer_ids_raw]
 
                 all_overwatch_nodes.append(
                     OverwatchNodeInfo(

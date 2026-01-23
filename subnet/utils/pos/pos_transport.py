@@ -1,19 +1,23 @@
-from libp2p.abc import IRawConnection, ISecureConn, TProtocol
+from libp2p.abc import IRawConnection, ISecureConn, ISecureTransport, TProtocol
 from libp2p.peer.id import ID
-from libp2p.security.noise.transport import Transport as NoiseTransport
+
 from subnet.utils.pos.exceptions import InvalidProofOfStake
 from subnet.utils.pos.proof_of_stake import ProofOfStake
 
-PROTOCOL_ID = TProtocol("/pos/1.0.0")
+PROTOCOL_ID = TProtocol("/pos-transport/1.0.0")
 
 
 class POSTransport:
+    """
+    POSTransport is a wrapper around a secure transport that implements proof of stake.
+    """
+
     def __init__(
         self,
-        noise_transport: NoiseTransport,
+        transport: ISecureTransport,
         pos: ProofOfStake | None = None,
     ) -> None:
-        self.noise_transport = noise_transport
+        self.transport = transport
         self.pos = pos
         print("POSTransport init")
 
@@ -37,7 +41,7 @@ class POSTransport:
 
         """
         print("POSTransport secure_inbound")
-        noise_secure_inbound = await self.noise_transport.secure_inbound(conn)
+        noise_secure_inbound = await self.transport.secure_inbound(conn)
         print("POSTransport noise_secure_inbound", noise_secure_inbound)
         print(
             "POSTransport noise_secure_inbound remote_peer",
@@ -74,7 +78,7 @@ class POSTransport:
 
         """
         print("POSTransport secure_outbound")
-        noise_secure_outbound = await self.noise_transport.secure_outbound(conn, peer_id)
+        noise_secure_outbound = await self.transport.secure_outbound(conn, peer_id)
         print("POSTransport noise_secure_outbound", noise_secure_outbound)
         print(
             "POSTransport noise_secure_outbound remote_peer",

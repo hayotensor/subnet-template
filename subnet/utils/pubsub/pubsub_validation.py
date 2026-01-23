@@ -5,6 +5,7 @@ from libp2p.pubsub.pb import (
     rpc_pb2,
 )
 from libp2p.pubsub.pubsub import ID
+from pydantic import ValidationError
 
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
@@ -143,8 +144,8 @@ class AsyncHeartbeatMsgValidator:
 
             try:
                 heartbeat_data = HeartbeatData.from_json(msg.data.decode("utf-8"))
-            except Exception as e:
-                logger.warning(f"HeartbeatData.from_json failed: {e}", exc_info=True)
+            except (ValidationError, Exception) as e:
+                logger.warning(f"HeartbeatData validation failed: {e}", exc_info=True)
                 return False
 
             logger.debug(f"AsyncHeartbeatMsgValidator validate {from_peer_id}, HeartbeatData {heartbeat_data}")
@@ -156,24 +157,24 @@ class AsyncHeartbeatMsgValidator:
             # Verify subnet node ID
             peer_node_id = await self.subnet_info_tracker.get_peer_id_node_id(from_peer_id, force=True)
             if heartbeat_data.subnet_node_id != peer_node_id:
-                logger.info(
-                    f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat subnet node ID {heartbeat_data.subnet_node_id}, expected subnet node ID {peer_node_id}"  # noqa: E501
-                )
+                # logger.info(
+                #     f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat subnet node ID {heartbeat_data.subnet_node_id}, expected subnet node ID {peer_node_id}"  # noqa: E501
+                # )
                 return False
 
             # Verify epoch
             current_epoch = self.hypertensor.get_subnet_epoch_data(self.subnet_info_tracker.slot).epoch
             same_epoch = heartbeat_data.epoch == current_epoch
             if not same_epoch:
-                logger.info(
-                    f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat epoch {heartbeat_data.epoch}, current_epoch {current_epoch}"  # noqa: E501
-                )
+                # logger.info(
+                #     f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat epoch {heartbeat_data.epoch}, current_epoch {current_epoch}"  # noqa: E501
+                # )
                 return False
 
             # Verify proof of stake
             pos = self.proof_of_stake.proof_of_stake(from_peer_id)
             if not pos:
-                logger.info(f"Heartbeat validation, from_peer_id {from_peer_id}, proof of stake: {pos}")
+                # logger.info(f"Heartbeat validation, from_peer_id {from_peer_id}, proof of stake: {pos}")
                 return False
 
             return True
@@ -202,10 +203,11 @@ class SyncHeartbeatMsgValidator:
         self.hypertensor = hypertensor
         self.subnet_id = subnet_id
         self.proof_of_stake = proof_of_stake
+        self.last_epoch = None
+        self._seen_heartbeats: set[str] = set()  # e.g.: "epoch:peer_id"
 
     def __call__(self, forwarder_peer_id: ID, msg: rpc_pb2.Message) -> bool:
         try:
-            # TODO: Add pydantic validation
             # TODO: Ensure forwarder peer ID is in subnet (main, bootnode, or client)
 
             # Get originator peer ID
@@ -217,37 +219,51 @@ class SyncHeartbeatMsgValidator:
 
             try:
                 heartbeat_data = HeartbeatData.from_json(msg.data.decode("utf-8"))
-            except Exception as e:
-                logger.warning(f"HeartbeatData.from_json failed: {e}", exc_info=True)
+            except (ValidationError, Exception) as e:
+                logger.warning(f"HeartbeatData validation failed: {e}", exc_info=True)
                 return False
 
-            logger.debug(f"AsyncHeartbeatMsgValidator validate {from_peer_id}, HeartbeatData {heartbeat_data}")
+            logger.debug(f"SyncHeartbeatMsgValidator validate {from_peer_id}, HeartbeatData {heartbeat_data}")
 
             # Verify subnet ID
             if heartbeat_data.subnet_id != self.subnet_id:
                 return False
 
-            # Verify subnet node ID
+            # Verify from peer ID subnet node ID
             peer_node_id = self.subnet_info_tracker.get_peer_id_node_id_sync(from_peer_id, force=True)
             if heartbeat_data.subnet_node_id != peer_node_id:
-                logger.info(
+                logger.debug(
                     f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat subnet node ID {heartbeat_data.subnet_node_id}, expected subnet node ID {peer_node_id}"  # noqa: E501
                 )
                 return False
 
             # Verify epoch
             current_epoch = self.hypertensor.get_subnet_epoch_data(self.subnet_info_tracker.slot).epoch
+            if self.last_epoch is not None and current_epoch != self.last_epoch:
+                self._seen_heartbeats.clear()
+                self.last_epoch = current_epoch
+
             same_epoch = heartbeat_data.epoch == current_epoch
             if not same_epoch:
-                logger.info(
+                logger.debug(
                     f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat epoch {heartbeat_data.epoch}, current_epoch {current_epoch}"  # noqa: E501
                 )
                 return False
 
+            # Verify in-memory heartbeat
+            key = f"{current_epoch}:{from_peer_id}"
+            if key in self._seen_heartbeats:
+                logger.debug(
+                    f"Heartbeat validation, from_peer_id {from_peer_id}, epoch {current_epoch}, duplicate heartbeat"
+                )
+                return False
+
+            self._seen_heartbeats.add(key)
+
             # Verify proof of stake
             pos = self.proof_of_stake.proof_of_stake(from_peer_id)
             if not pos:
-                logger.info(f"Heartbeat validation, from_peer_id {from_peer_id}, proof of stake: {pos}")
+                logger.debug(f"Heartbeat validation, from_peer_id {from_peer_id}, proof of stake: {pos}")
                 return False
 
             return True

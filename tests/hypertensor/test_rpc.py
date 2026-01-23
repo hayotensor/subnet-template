@@ -346,6 +346,55 @@ def test_get_bootnodes():
                 print("Decode error:", str(e))
 
 
+# python -m pytest tests/hypertensor/test_rpc.py::test_get_all_overwatch_nodes_info -rP
+
+
+def test_get_all_overwatch_nodes_info():
+    rpc_runtime_config = RuntimeConfiguration()
+    rpc_runtime_config.update_type_registry(load_type_registry_preset("legacy"))
+    rpc_runtime_config.update_type_registry(custom_rpc_type_registry)
+
+    with hypertensor.interface as _interface:
+        result = _interface.rpc_request(method="network_getAllOverwatchNodesInfo", params=[])
+        # print("Raw result:", result)
+        scale_obj = rpc_runtime_config.create_scale_object("Vec<OverwatchNodeInfo>")
+        type_info = scale_obj.generate_type_decomposition()
+        print("type_info", type_info)
+
+        if "result" in result and result["result"]:
+            try:
+                # Create scale object for decoding
+                obj = rpc_runtime_config.create_scale_object("Vec<OverwatchNodeInfo>")
+
+                # Decode the hex-encoded SCALE data (don't encode!)
+                decoded_data = obj.decode(ScaleBytes(bytes(result["result"])))
+                print("Decoded data:", decoded_data)
+
+            except Exception as e:
+                print("Decode error:", str(e))
+
+            try:
+                # Create scale object for decoding
+                obj = rpc_runtime_config.create_scale_object(
+                    "Vec<OverwatchNodeInfo>", data=ScaleBytes(bytes(result["result"]))
+                )
+
+                # Decode the hex-encoded SCALE data (don't encode!)
+                decoded_data = obj.decode()
+                print("Decoded data:", decoded_data)
+
+            except Exception as e:
+                print("Decode error:", str(e))
+
+
+# python -m pytest tests/hypertensor/test_rpc.py::test_get_all_overwatch_nodes_info_formatted -rP
+
+
+def test_get_all_overwatch_nodes_info_formatted():
+    overwatch_nodes = hypertensor.get_all_overwatch_nodes_info_formatted()
+    print("overwatch_nodes", overwatch_nodes)
+
+
 # pytest tests/substrate/test_rpc.py::test_get_bootnodes_formatted -rP
 
 

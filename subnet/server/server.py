@@ -7,7 +7,7 @@ from libp2p import (
 )
 from libp2p.crypto.keys import KeyPair
 from libp2p.crypto.x25519 import create_new_key_pair as create_new_x25519_key_pair
-from libp2p.custom_types import TProtocol
+from libp2p.custom_types import ISecureTransport, TProtocol
 from libp2p.kad_dht.kad_dht import (
     DHTMode,
     KadDHT,
@@ -21,6 +21,8 @@ from libp2p.security.noise.transport import (
     PROTOCOL_ID as NOISE_PROTOCOL_ID,
     Transport as NoiseTransport,
 )
+import libp2p.security.secio.transport as secio
+from libp2p.security.secio.transport import Transport as SecioTransport
 from libp2p.tools.async_service import background_trio_service
 import trio
 
@@ -37,6 +39,11 @@ from subnet.utils.connections.bootstrap import connect_to_bootstrap_nodes
 from subnet.utils.gossipsub.gossip_receiver import GossipReceiver
 from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
 from subnet.utils.patches import apply_all_patches
+
+# from subnet.utils.pos.pos_noise_transport import (
+#     PROTOCOL_ID as POS_PROTOCOL_ID,
+#     POSNoiseTransport,
+# )
 from subnet.utils.pos.pos_transport import (
     PROTOCOL_ID as POS_PROTOCOL_ID,
     POSTransport,
@@ -108,24 +115,30 @@ class Server:
             min_class=0,
         )
 
-        # pos_transport = POSTransport(
-        #     noise_transport=NoiseTransport(
-        #         self.key_pair,
-        #         noise_privkey=create_new_x25519_key_pair().private_key,
-        #     ),
-        #     pos=ProofOfStake(
-        #         subnet_id=self.subnet_id,
-        #         hypertensor=self.hypertensor,
-        #         min_class=0,
-        #     ),
-        # )
+        pos_noise_transport = POSTransport(
+            transport=NoiseTransport(
+                self.key_pair,
+                noise_privkey=create_new_x25519_key_pair().private_key,
+            ),
+            pos=proof_of_stake,
+        )
 
-        # secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
-        #     POS_PROTOCOL_ID: pos_transport,
-        # }
+        pos_secio_transport = POSTransport(
+            transport=SecioTransport(
+                self.key_pair,
+            ),
+            pos=proof_of_stake,
+        )
+
+        secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
+            POS_PROTOCOL_ID: pos_noise_transport,
+            TProtocol(secio.ID): pos_secio_transport,
+        }
 
         # Create a new libp2p host
-        host = new_host(key_pair=self.key_pair)
+        # host = new_host(key_pair=self.key_pair)
+        host = new_host(key_pair=self.key_pair, sec_opt=secure_transports_by_protocol)
+
         # Increase connection limits to prevent aggressive pruning (EOF/0-byte reads)
         # This is done manually because new_host() only exposes this via QUIC config.
         # We cast to Swarm so the IDE/type checker recognizes the connection_config.
@@ -188,19 +201,6 @@ class Server:
                         logger.info("Pubsub and GossipSub services started.")
                         await pubsub.wait_until_ready()
                         logger.info("Pubsub ready.")
-
-                        # pubsub.set_topic_validator(
-                        #     HEARTBEAT_TOPIC,
-                        #     AsyncPubsubTopicValidator.from_predicate_class(
-                        #         AsyncHeartbeatMsgValidator,
-                        #         host.get_id(),
-                        #         subnet_info_tracker,
-                        #         self.hypertensor,
-                        #         self.subnet_id,
-                        #         proof_of_stake,
-                        #     ).validate,
-                        #     is_async_validator=True,
-                        # )
 
                         pubsub.set_topic_validator(
                             HEARTBEAT_TOPIC,

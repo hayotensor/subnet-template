@@ -84,7 +84,7 @@ def patch_maybe_delete_peer_record():
     """
     _orig_maybe_delete_peer_record = PeerStore.maybe_delete_peer_record
 
-    async def safe_maybe_delete_peer_record(self: PeerStore, peer_id: ID) -> bool:
+    def safe_maybe_delete_peer_record(self: PeerStore, peer_id: ID) -> bool:
         if peer_id in self.peer_record_map:
             try:
                 if not self.addrs(peer_id):
@@ -99,3 +99,4 @@ def apply_all_patches():
     """Apply all libp2p stability patches."""
     patch_get_in_topic_gossipsub_peers_from_minus()
     patch_write_msg()
+    patch_maybe_delete_peer_record()

@@ -78,6 +78,7 @@ class OverwatchEpochData:
     seconds_elapsed: int
     seconds_remaining: int
     seconds_remaining_until_reveal: int
+    epoch_cutoff_block: int
 
     @staticmethod
     def zero(current_block: int, epoch_length: int) -> "OverwatchEpochData":
@@ -93,6 +94,7 @@ class OverwatchEpochData:
             seconds_elapsed=0,
             seconds_remaining=epoch_length * BLOCK_SECS,
             seconds_remaining_until_reveal=0,
+            epoch_cutoff_block=0,
         )
 
 
@@ -298,11 +300,20 @@ class Hypertensor:
             data = element_count_compact.data
 
             # Force key/value map types
-            self.map_key = "[u8; 20]"
-            self.map_value = "u32"
+            if str(value[0][0]).startswith("0x"):
+                # initial_coldkeys
+                self.map_key = "[u8; 20]"
+                self.map_value = "u32"
+            elif str(value[0][1]).startswith("/"):
+                # bootnodes
+                self.map_key = "Vec<u8>"
+                self.map_value = "Vec<u8>"
 
             for item_key, item_value in value:
                 key_obj = self.runtime_config.create_scale_object(type_string=self.map_key, metadata=self.metadata)
+                print("_patched_process_encode key_obj", key_obj)
+                print("_patched_process_encode item_key", item_key)
+                print("_patched_process_encode item_value", item_value)
 
                 data += key_obj.encode(item_key)
 
@@ -310,6 +321,7 @@ class Hypertensor:
 
                 data += value_obj.encode(item_value)
 
+            print("_patched_process_encode data", data)
             return data
 
         Map.process_encode = _patched_process_encode
@@ -1065,6 +1077,80 @@ class Hypertensor:
                     extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
 
                     receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
+                    return receipt
+            except SubstrateRequestException as e:
+                print("Failed to send: {}".format(e))
+
+        return submit_extrinsic()
+
+    def commit_overwatch_subnet_weights(
+        self,
+        overwatch_node_id: int,
+        commit_weights: Any,
+    ):
+        # compose call
+        call = self.interface.compose_call(
+            call_module="Network",
+            call_function="commit_overwatch_subnet_weights",
+            call_params={
+                "overwatch_node_id": overwatch_node_id,
+                "commit_weights": commit_weights,
+            },
+        )
+
+        @retry(wait=wait_fixed(BLOCK_SECS + 1), stop=stop_after_attempt(4))
+        def submit_extrinsic():
+            try:
+                with self.interface as _interface:
+                    # get none on retries
+                    nonce = _interface.get_account_nonce(self.keypair.ss58_address)
+
+                    # create signed extrinsic
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
+
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
+                    if receipt.is_success:
+                        print("✅ Extrinsic Success")
+                    else:
+                        logger.error(f"⚠️ Extrinsic Failed: {receipt.error_message}")
+
+                    return receipt
+            except SubstrateRequestException as e:
+                print("Failed to send: {}".format(e))
+
+        return submit_extrinsic()
+
+    def reveal_overwatch_subnet_weights(
+        self,
+        overwatch_node_id: int,
+        reveals: Any,
+    ):
+        # compose call
+        call = self.interface.compose_call(
+            call_module="Network",
+            call_function="reveal_overwatch_subnet_weights",
+            call_params={
+                "overwatch_node_id": overwatch_node_id,
+                "reveals": reveals,
+            },
+        )
+
+        @retry(wait=wait_fixed(BLOCK_SECS + 1), stop=stop_after_attempt(4))
+        def submit_extrinsic():
+            try:
+                with self.interface as _interface:
+                    # get none on retries
+                    nonce = _interface.get_account_nonce(self.keypair.ss58_address)
+
+                    # create signed extrinsic
+                    extrinsic = _interface.create_signed_extrinsic(call=call, keypair=self.keypair, nonce=nonce)
+
+                    receipt = _interface.submit_extrinsic(extrinsic, wait_for_inclusion=True)
+                    if receipt.is_success:
+                        print("✅ Extrinsic Success")
+                    else:
+                        logger.error(f"⚠️ Extrinsic Failed: {receipt.error_message}")
+
                     return receipt
             except SubstrateRequestException as e:
                 print("Failed to send: {}".format(e))
@@ -1996,7 +2082,7 @@ class Hypertensor:
             seconds_remaining=seconds_remaining,
         )
 
-    def get_overwatch_epoch_data(self) -> EpochData:
+    def get_overwatch_epoch_data(self) -> OverwatchEpochData:
         current_block = self.get_block_number()
         epoch_length = self.get_epoch_length()
         current_block = int(str(current_block))
@@ -2009,19 +2095,22 @@ class Hypertensor:
         seconds_remaining = blocks_remaining * BLOCK_SECS
 
         multiplier = self.get_overwatch_epoch_multiplier()
+        multiplier = int(str(multiplier))
         overwatch_epoch_length = epoch_length * multiplier
-        cutoff_percentage = float(self.get_overwatch_commit_cutoff_percent() / 1e18)
+        overwatch_epoch = current_block // overwatch_epoch_length
+        cutoff_percentage = float(int(str(self.get_overwatch_commit_cutoff_percent())) / 1e18)
         block_increase_cutoff = overwatch_epoch_length * cutoff_percentage
-        epoch_cutoff_block = overwatch_epoch_length * epoch + block_increase_cutoff
+        epoch_cutoff_block = overwatch_epoch_length * overwatch_epoch + block_increase_cutoff
 
         if current_block > epoch_cutoff_block:
             seconds_remaining_until_reveal = 0
         else:
-            seconds_remaining_until_reveal = epoch_cutoff_block - current_block
+            seconds_remaining_until_reveal = (epoch_cutoff_block - current_block) * BLOCK_SECS
 
         return OverwatchEpochData(
             block=current_block,
             epoch=epoch,
+            overwatch_epoch=overwatch_epoch,
             block_per_epoch=epoch_length,
             seconds_per_epoch=epoch_length * BLOCK_SECS,
             percent_complete=percent_complete,
@@ -2030,15 +2119,17 @@ class Hypertensor:
             seconds_elapsed=seconds_elapsed,
             seconds_remaining=seconds_remaining,
             seconds_remaining_until_reveal=seconds_remaining_until_reveal,
+            epoch_cutoff_block=epoch_cutoff_block,
         )
 
     def in_overwatch_commit_period(self) -> bool:
         epoch_data = self.get_epoch_data()
         epoch_length = epoch_data.block_per_epoch
         multiplier = self.get_overwatch_epoch_multiplier()
+        multiplier = int(str(multiplier))
         overwatch_epoch_length = epoch_length * multiplier
         current_epoch = epoch_data.epoch
-        cutoff_percentage = float(self.get_overwatch_commit_cutoff_percent() / 1e18)
+        cutoff_percentage = float(int(str(self.get_overwatch_commit_cutoff_percent())) / 1e18)
         block_increase_cutoff = overwatch_epoch_length * cutoff_percentage
         epoch_cutoff_block = overwatch_epoch_length * current_epoch + block_increase_cutoff
         return epoch_data.block < epoch_cutoff_block

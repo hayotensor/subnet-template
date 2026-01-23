@@ -1,10 +1,9 @@
-from dataclasses import asdict, dataclass
-import json
 import logging
+from typing import Any
 
 from libp2p.custom_types import TProtocol
 from libp2p.pubsub.pubsub import Pubsub
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 import trio
 
 from subnet.hypertensor.chain_functions import Hypertensor
@@ -23,51 +22,19 @@ logger = logging.getLogger("server/1.0.0")
 HEARTBEAT_TOPIC = "heartbeat"
 
 
-# class HeartbeatData(BaseModel):
-#     epoch: int
-#     subnet_id: int
-#     subnet_node_id: int
-
-#     def __init__(self, hypertensor: Hypertensor | LocalMockHypertensor, subnet_id: int):
-#         self.hypertensor = hypertensor
-#         self.subnet_id = subnet_id
-
-#     @field_validator("epoch")
-#     def check_epoch(cls, v):
-#         epoch = cls.hypertensor.get_subnet_epoch_data(cls.subnet_id).epoch
-#         if v != epoch:
-#             raise ValueError(f"Epoch must be {epoch}")
-#         return v
-
-#     @field_validator("subnet_id")
-#     def check_subnet_id(cls, v):
-#         if v != cls.subnet_id:
-#             raise ValueError(f"Subnet ID must be {cls.subnet_id}")
-#         return v
-
-#     def to_json(self) -> str:
-#         """Serialize to JSON string."""
-#         return json.dumps(asdict(self))
-
-#     def to_bytes(self) -> bytes:
-#         """Serialize to bytes for pubsub."""
-#         return self.to_json().encode("utf-8")
-
-#     @classmethod
-#     def from_json(cls, data: str) -> "HeartbeatData":
-#         """Deserialize from JSON string."""
-#         return cls(**json.loads(data))
-
-
-@dataclass
-class HeartbeatData:
+class HeartbeatData(BaseModel):
     epoch: int
     subnet_id: int
     subnet_node_id: int
 
+    def model_post_init(self, __context: Any) -> None:
+        assert self.epoch > 0, "Epoch must be greater than 0"
+        assert self.subnet_id > 0, "Subnet ID must be greater than 0"
+        assert self.subnet_node_id > 0, "Subnet node ID must be greater than 0"
+
     def to_json(self) -> str:
         """Serialize to JSON string."""
-        return json.dumps(asdict(self))
+        return self.model_dump_json()
 
     def to_bytes(self) -> bytes:
         """Serialize to bytes for pubsub."""
@@ -76,7 +43,7 @@ class HeartbeatData:
     @classmethod
     def from_json(cls, data: str) -> "HeartbeatData":
         """Deserialize from JSON string."""
-        return cls(**json.loads(data))
+        return cls.model_validate_json(data)
 
 
 async def publish_loop(
@@ -104,7 +71,7 @@ async def publish_loop(
             # if current_epoch != last_epoch:
             last_epoch = current_epoch
 
-            message = HeartbeatData(current_epoch, subnet_id, subnet_node_id).to_bytes()
+            message = HeartbeatData(epoch=current_epoch, subnet_id=subnet_id, subnet_node_id=subnet_node_id).to_bytes()
 
             logger.debug(f"Publishing message: {message}")
             await pubsub.publish(topic, message)

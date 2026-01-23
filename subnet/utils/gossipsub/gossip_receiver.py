@@ -128,10 +128,6 @@ class GossipReceiver:
 
     async def _handle_heartbeat(self, message: rpc_pb2.Message, from_peer: str) -> None:
         """Store heartbeat message if not already stored for this epoch."""
-        # if self.subnet_info_tracker.epoch_data is None:
-        #     logger.warning("epoch_data not yet synced, skipping heartbeat")
-        #     return
-
         # epoch = self.subnet_info_tracker.epoch_data.epoch
         epoch = self.hypertensor.get_subnet_epoch_data(self.subnet_info_tracker.slot).epoch
 
@@ -145,7 +141,11 @@ class GossipReceiver:
 
         key = f"{epoch}:{from_peer}"
 
-        heartbeat_data = HeartbeatData.from_json(message.data.decode("utf-8"))
+        try:
+            heartbeat_data = HeartbeatData.from_json(message.data.decode("utf-8"))
+        except Exception as e:
+            logger.warning(f"HeartbeatData validation failed: {e}")
+            return
 
         # Fast in-memory check
         if key in self._seen_heartbeats:

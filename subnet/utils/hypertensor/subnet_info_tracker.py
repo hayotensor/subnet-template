@@ -42,6 +42,7 @@ class SubnetInfoTracker:
         subnet_id: int,
         hypertensor: Hypertensor | LocalMockHypertensor,
         epoch_update_intervals: list[float] = [0.0],
+        start_fresh_epoch: bool = True,
     ):
         for interval in epoch_update_intervals:
             if interval < 0 or interval > 1:
@@ -50,6 +51,7 @@ class SubnetInfoTracker:
         self.subnet_id = subnet_id
         self.hypertensor = hypertensor
         self.epoch_update_intervals = epoch_update_intervals
+        self.start_fresh_epoch = start_fresh_epoch
         self.termination_event = termination_event
         self.epoch_data: Optional[EpochData] = None
         self.slot: int | None = None
@@ -109,7 +111,7 @@ class SubnetInfoTracker:
         self.previous_interval_timestamp = int(time.time())
 
         # Start on fresh epoch
-        if not self.started:
+        if not self.started and self.start_fresh_epoch:
             logger.info(
                 f"SubnetInfoTracker starting in {self.epoch_data.seconds_remaining} seconds"  # noqa: E501
             )
@@ -132,14 +134,17 @@ class SubnetInfoTracker:
         self.previous_interval = pct
 
         # Find next epoch update interval
-        next_epoch_update_interval = None
-        for d in self.epoch_update_intervals:
-            if pct < d:
-                next_epoch_update_interval = d
-                break
+        # next_epoch_update_interval = None
+        # for d in self.epoch_update_intervals:
+        #     if pct < d:
+        #         next_epoch_update_interval = d
+        #         break
+
+        next_epoch_update_interval = self._next_epoch_update_interval(pct)
 
         seconds_to_wait = self._seconds_to_wait(next_epoch_update_interval, pct)
-        seconds_to_wait = max(BLOCK_SECS, seconds_to_wait)
+        # seconds_to_wait = max(BLOCK_SECS, seconds_to_wait)
+        seconds_to_wait = min(seconds_to_wait, self.epoch_data.seconds_remaining)
         return seconds_to_wait
 
     def _seconds_to_wait(self, next_epoch_update_interval: float, current_pct: float) -> int:
@@ -150,6 +155,14 @@ class SubnetInfoTracker:
 
         # No more epoch update intervals this epoch, wait until epoch ends
         return self.epoch_data.seconds_remaining
+
+    def _next_epoch_update_interval(self, current_pct: float | None) -> float | None:
+        if current_pct is None:
+            return None
+        for d in self.epoch_update_intervals:
+            if current_pct < d:
+                return d
+        return None
 
     async def _get_subnet_slot(self, subnet_id: int) -> int | None:
         if self.slot is None or self.slot == "None":  # noqa: E711
@@ -168,7 +181,6 @@ class SubnetInfoTracker:
             await self._update_data()
 
         if self.nodes is None or self.epoch_data is None:
-            print("get_nodes: nodes or epoch_data is None")
             return []
 
         return [
@@ -234,42 +246,63 @@ class SubnetInfoTracker:
             await self._update_data()
 
         all_ids = []
-        for node in self.nodes:
-            for pid_raw in [node.peer_id, node.client_peer_id, node.bootnode_peer_id]:
-                if pid_raw is not None and pid_raw != "":  # Check for empty strings for LocalMockHypertensor
-                    try:
-                        # Convert to PeerID format
-                        if isinstance(pid_raw, PeerID):
-                            all_ids.append(pid_raw)
-                        else:
-                            all_ids.append(PeerID.from_base58(str(pid_raw)))
-                    except Exception:
-                        continue
 
-        for peer_id, _ in self.bootnodes.subnet_bootnodes:
-            if peer_id is not None and peer_id != "":  # Check for empty strings for LocalMockHypertensor
-                try:
-                    # Convert to PeerID format
-                    if isinstance(peer_id, PeerID):
-                        all_ids.append(peer_id)
-                    else:
-                        all_ids.append(PeerID.from_base58(str(peer_id)))
-                except Exception:
-                    continue
+        try:
+            if self.nodes is not None:
+                for node in self.nodes:
+                    for pid_raw in [node.peer_id, node.client_peer_id, node.bootnode_peer_id]:
+                        if pid_raw is not None and pid_raw != "":  # Check for empty strings for LocalMockHypertensor
+                            try:
+                                # Convert to PeerID format
+                                if isinstance(pid_raw, PeerID):
+                                    all_ids.append(pid_raw)
+                                else:
+                                    all_ids.append(PeerID.from_base58(str(pid_raw)))
+                            except Exception:
+                                continue
+        except Exception as e:
+            logger.error(f"get_all_peer_ids: Exception: {e}")
+
+        try:
+            if self.bootnodes is not None and self.bootnodes.subnet_bootnodes is not None:
+                for peer_id, _ in self.bootnodes.subnet_bootnodes:
+                    if peer_id is not None and peer_id != "":  # Check for empty strings for LocalMockHypertensor
+                        try:
+                            # Convert to PeerID format
+                            if isinstance(peer_id, PeerID):
+                                all_ids.append(peer_id)
+                            else:
+                                all_ids.append(PeerID.from_base58(str(peer_id)))
+                        except Exception:
+                            continue
+        except Exception as e:
+            logger.error(f"get_all_peer_ids: Exception: {e}")
 
         # Get overwatch node peer IDs matching the current subnet
-        for overwatch_node in self.overwatch_nodes:
-            peer_id_raw = overwatch_node.peer_ids.get(str(self.subnet_id))
-            if peer_id_raw is not None and peer_id_raw != "":
-                try:
-                    if isinstance(peer_id_raw, PeerID):
-                        all_ids.append(peer_id_raw)
-                    else:
-                        all_ids.append(PeerID.from_base58(str(peer_id_raw)))
-                except Exception:
-                    continue
+        try:
+            if self.overwatch_nodes is not None and len(self.overwatch_nodes) > 0:
+                for overwatch_node in self.overwatch_nodes:
+                    if overwatch_node.peer_ids is None or len(overwatch_node.peer_ids) == 0:
+                        continue
+                    peer_id_raw = self._get_overwatch_peer_id_by_subnet(overwatch_node.peer_ids, self.subnet_id)
+                    if peer_id_raw is not None and peer_id_raw != "":
+                        try:
+                            if isinstance(peer_id_raw, PeerID):
+                                all_ids.append(peer_id_raw)
+                            else:
+                                all_ids.append(PeerID.from_base58(str(peer_id_raw)))
+                        except Exception:
+                            continue
+        except Exception as e:
+            logger.error(f"get_all_peer_ids: Exception: {e}")
 
         return all_ids
+
+    def _get_overwatch_peer_id_by_subnet(self, tuples, subnet_id):
+        for net_id, peer_id in tuples:
+            if net_id == subnet_id:
+                return peer_id
+        return None
 
     def get_seconds_since_previous_interval(self) -> int:
         if self.previous_interval_timestamp is None:
@@ -284,18 +317,5 @@ class SubnetInfoTracker:
             1,
             self.epoch_data.seconds_remaining - self.get_seconds_since_previous_interval(),
         )
-        print(f"SubnetInfoTracker epoch_data.epoch {self.epoch_data.epoch}")
-        print(
-            f"SubnetInfoTracker previous_interval_timestamp {self.previous_interval_timestamp}"  # noqa: E501
-        )
-        print(
-            f"SubnetInfoTracker epoch_data.seconds_remaining {self.epoch_data.seconds_remaining}"  # noqa: E501
-        )
-        print(
-            f"SubnetInfoTracker get_seconds_since_previous_interval() {self.get_seconds_since_previous_interval()}"  # noqa: E501
-        )
-        print(f"SubnetInfoTracker current time {time.time()}")
-        print(f"SubnetInfoTracker previous_interval {self.previous_interval}")
-        print(f"SubnetInfoTracker true_seconds_remaining {true_seconds_remaining}")
 
         return true_seconds_remaining

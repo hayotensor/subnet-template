@@ -197,12 +197,14 @@ class GossipFallback:
                 if heartbeat is None:
                     raise Exception("Heartbeat doesn't exist")
 
+                heartbeat_data = HeartbeatData.from_json(heartbeat)
+
                 # TODO: Check if peer_id is an on-chain peer ID
 
                 msg = GossipFallbackResponse(
                     epoch=epoch,
-                    subnet_id=heartbeat.subnet_id,
-                    subnet_node_id=heartbeat.subnet_node_id,
+                    subnet_id=heartbeat_data.subnet_id,
+                    subnet_node_id=heartbeat_data.subnet_node_id,
                 )
 
             except Exception as proto_err:

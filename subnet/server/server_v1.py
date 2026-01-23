@@ -55,9 +55,9 @@ from subnet.utils.connection import (
 from subnet.utils.connections.bootstrap import connect_to_bootstrap_nodes
 from subnet.utils.gossipsub.gossip_receiver import GossipReceiver
 from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
-from subnet.utils.pos.pos_transport import (
+from subnet.utils.pos.pos_noise_transport import (
     PROTOCOL_ID as POS_PROTOCOL_ID,
-    POSTransport,
+    POSNoiseTransport,
 )
 from subnet.utils.pos.proof_of_stake import ProofOfStake
 from subnet.utils.pubsub.custom_score_params import custom_score_params
