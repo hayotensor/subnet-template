@@ -27,44 +27,44 @@ hypertensor = Hypertensor(
 )
 # hypertensor = Hypertensor(LOCAL_RPC, "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133", keypair_from=KeypairFrom.PRIVATE_KEY)
 
-# pytest tests/substrate/test_rpc.py::test_get_subnet_info -rP
+# python -m pytest tests/hypertensor/test_rpc.py::test_get_subnet_info -rP
 
 
-# def test_get_subnet_info():
-#     rpc_runtime_config = RuntimeConfiguration()
-#     rpc_runtime_config.update_type_registry(load_type_registry_preset("legacy"))
-#     rpc_runtime_config.update_type_registry(custom_rpc_type_registry)
+def test_get_subnet_info():
+    rpc_runtime_config = RuntimeConfiguration()
+    rpc_runtime_config.update_type_registry(load_type_registry_preset("legacy"))
+    rpc_runtime_config.update_type_registry(custom_rpc_type_registry)
 
-#     with hypertensor.interface as _interface:
-#         result = _interface.rpc_request(method="network_getSubnetInfo", params=[1])
-#         scale_obj = rpc_runtime_config.create_scale_object("Option<SubnetInfo>")
-#         type_info = scale_obj.generate_type_decomposition()
-#         print("type_info", type_info)
+    with hypertensor.interface as _interface:
+        result = _interface.rpc_request(method="network_getSubnetInfo", params=[128001])
+        scale_obj = rpc_runtime_config.create_scale_object("Option<SubnetInfo>")
+        type_info = scale_obj.generate_type_decomposition()
+        print("type_info", type_info)
 
-#         if "result" in result and result["result"]:
-#             try:
-#                 # Create scale object for decoding
-#                 obj = rpc_runtime_config.create_scale_object("Option<SubnetInfo>")
+        if "result" in result and result["result"]:
+            try:
+                # Create scale object for decoding
+                obj = rpc_runtime_config.create_scale_object("Option<SubnetInfo>")
 
-#                 # Decode the hex-encoded SCALE data (don't encode!)
-#                 decoded_data = obj.decode(ScaleBytes(bytes(result["result"])))
-#                 print("Decoded data:", decoded_data)
+                # Decode the hex-encoded SCALE data (don't encode!)
+                decoded_data = obj.decode(ScaleBytes(bytes(result["result"])))
+                print("Decoded data:", decoded_data)
 
-#             except Exception as e:
-#                 print("Decode error:", str(e))
+            except Exception as e:
+                print("Decode error:", str(e))
 
-#             try:
-#                 # Create scale object for decoding
-#                 obj = rpc_runtime_config.create_scale_object(
-#                     "Option<SubnetInfo>", data=ScaleBytes(bytes(result["result"]))
-#                 )
+            try:
+                # Create scale object for decoding
+                obj = rpc_runtime_config.create_scale_object(
+                    "Option<SubnetInfo>", data=ScaleBytes(bytes(result["result"]))
+                )
 
-#                 # Decode the hex-encoded SCALE data (don't encode!)
-#                 decoded_data = obj.decode()
-#                 print("Decoded data:", decoded_data)
+                # Decode the hex-encoded SCALE data (don't encode!)
+                decoded_data = obj.decode()
+                print("Decoded data:", decoded_data)
 
-#             except Exception as e:
-#                 print("Decode error:", str(e))
+            except Exception as e:
+                print("Decode error:", str(e))
 
 
 # # pytest tests/substrate/test_rpc.py::test_get_subnet_info_formatted -rP
@@ -128,53 +128,52 @@ hypertensor = Hypertensor(
 #     print(subnets_data)
 
 
-# # pytest tests/substrate/test_rpc.py::test_get_subnet_node_info -rP
+# python -m pytest tests/hypertensor/test_rpc.py::test_get_subnet_node_info -rP
 
 
-# def test_get_subnet_node_info():
-#     rpc_runtime_config = RuntimeConfiguration()
-#     rpc_runtime_config.update_type_registry(load_type_registry_preset("legacy"))
-#     rpc_runtime_config.update_type_registry(custom_rpc_type_registry)
+def test_get_subnet_node_info():
+    rpc_runtime_config = RuntimeConfiguration()
+    rpc_runtime_config.update_type_registry(load_type_registry_preset("legacy"))
+    rpc_runtime_config.update_type_registry(custom_rpc_type_registry)
 
-#     with hypertensor.interface as _interface:
-#         result = _interface.rpc_request(method="network_getSubnetNodeInfo", params=[1, 1])
-#         # print("Raw result:", result)
-#         scale_obj = rpc_runtime_config.create_scale_object("Option<SubnetNodeInfo>")
-#         type_info = scale_obj.generate_type_decomposition()
-#         print("type_info", type_info)
+    with hypertensor.interface as _interface:
+        result = _interface.rpc_request(method="network_getSubnetNodeInfo", params=[128001, 1])
+        scale_obj = rpc_runtime_config.create_scale_object("Option<SubnetNodeInfo>")
+        type_info = scale_obj.generate_type_decomposition()
+        print("type_info", type_info)
 
-#         if "result" in result and result["result"]:
-#             try:
-#                 # Create scale object for decoding
-#                 obj = rpc_runtime_config.create_scale_object("Option<SubnetNodeInfo>")
+        if "result" in result and result["result"]:
+            try:
+                # Create scale object for decoding
+                obj = rpc_runtime_config.create_scale_object("Option<SubnetNodeInfo>")
 
-#                 # Decode the hex-encoded SCALE data (don't encode!)
-#                 decoded_data = obj.decode(ScaleBytes(bytes(result["result"])))
-#                 print("Decoded data:", decoded_data)
+                # Decode the hex-encoded SCALE data (don't encode!)
+                decoded_data = obj.decode(ScaleBytes(bytes(result["result"])))
+                print("Decoded data:", decoded_data)
 
-#             except Exception as e:
-#                 print("Decode error:", str(e))
+            except Exception as e:
+                print("Decode error:", str(e))
 
-#             try:
-#                 # Create scale object for decoding
-#                 obj = rpc_runtime_config.create_scale_object(
-#                     "Option<SubnetNodeInfo>", data=ScaleBytes(bytes(result["result"]))
-#                 )
+            try:
+                # Create scale object for decoding
+                obj = rpc_runtime_config.create_scale_object(
+                    "Option<SubnetNodeInfo>", data=ScaleBytes(bytes(result["result"]))
+                )
 
-#                 # Decode the hex-encoded SCALE data (don't encode!)
-#                 decoded_data = obj.decode()
-#                 print("Decoded data:", decoded_data)
+                # Decode the hex-encoded SCALE data (don't encode!)
+                decoded_data = obj.decode()
+                print("Decoded data:", decoded_data)
 
-#             except Exception as e:
-#                 print("Decode error:", str(e))
-
-
-# # pytest tests/substrate/test_rpc.py::test_get_subnet_node_info_formatted -rP
+            except Exception as e:
+                print("Decode error:", str(e))
 
 
-# def test_get_subnet_node_info_formatted():
-#     subnet_node_info = hypertensor.get_formatted_get_subnet_node_info(1, 1)
-#     print(subnet_node_info)
+# python -m pytest tests/hypertensor/test_rpc.py::test_get_subnet_node_info_formatted -rP
+
+
+def test_get_subnet_node_info_formatted():
+    subnet_node_info = hypertensor.get_formatted_get_subnet_node_info(128001, 1)
+    print(subnet_node_info)
 
 
 # # pytest tests/substrate/test_rpc.py::test_get_min_class_subnet_nodes_formatted -rP
@@ -194,7 +193,7 @@ hypertensor = Hypertensor(
 #     rpc_runtime_config.update_type_registry(custom_rpc_type_registry)
 
 #     with hypertensor.interface as _interface:
-#         result = _interface.rpc_request(method="network_getSubnetNodesInfo", params=[1])
+#         result = _interface.rpc_request(method="network_getSubnetNodesInfo", params=[128001])
 #         # print("Raw result:", result)
 #         scale_obj = rpc_runtime_config.create_scale_object("Vec<SubnetNodeInfo>")
 #         type_info = scale_obj.generate_type_decomposition()
@@ -314,7 +313,7 @@ def test_get_bootnodes():
     rpc_runtime_config.update_type_registry(custom_rpc_type_registry)
 
     with hypertensor.interface as _interface:
-        result = _interface.rpc_request(method="network_getBootnodes", params=[1])
+        result = _interface.rpc_request(method="network_getBootnodes", params=[128001])
         # print("Raw result:", result)
         scale_obj = rpc_runtime_config.create_scale_object("AllSubnetBootnodes")
         type_info = scale_obj.generate_type_decomposition()
@@ -684,7 +683,6 @@ def test_get_all_overwatch_nodes_info_formatted():
 #                 "max_stake": 100000000000000000001,
 #                 "delegate_stake_percentage": 100000000000000000,
 #                 "initial_coldkeys": initial_coldkeys,
-#                 "key_types": sorted(set(["Rsa"])),
 #                 "bootnodes": sorted(set(["p2p/127.0.0.1/tcp"])),
 #             },
 #         },

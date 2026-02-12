@@ -7,10 +7,13 @@ from libp2p.pubsub.pb import rpc_pb2
 from libp2p.pubsub.pubsub import Pubsub
 import trio
 
-from subnet.db.database import RocksDB
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
-from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
+from subnet.utils.db.database import RocksDB
+
+# from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
+from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
+
 from subnet.utils.pubsub.heartbeat import HEARTBEAT_TOPIC, HeartbeatData
 
 logging.basicConfig(
@@ -128,24 +131,23 @@ class GossipReceiver:
 
     async def _handle_heartbeat(self, message: rpc_pb2.Message, from_peer: str) -> None:
         """Store heartbeat message if not already stored for this epoch."""
-        # epoch = self.subnet_info_tracker.epoch_data.epoch
-        epoch = self.hypertensor.get_subnet_epoch_data(self.subnet_info_tracker.slot).epoch
+        # epoch = self.hypertensor.get_subnet_epoch_data(self.subnet_info_tracker.get_subnet_slot()).epoch
 
-        # Clear cache on epoch change
-        if self._last_epoch != epoch:
-            logger.debug(
-                f"Clearing heartbeat cache for epoch change: {self._last_epoch} -> {epoch}"  # noqa: E501
-            )
-            self._seen_heartbeats.clear()
-            self._last_epoch = epoch
-
-        key = f"{epoch}:{from_peer}"
+        # # Clear cache on epoch change
+        # if self._last_epoch != epoch:
+        #     logger.debug(
+        #         f"Clearing heartbeat cache for epoch change: {self._last_epoch} -> {epoch}"  # noqa: E501
+        #     )
+        #     self._seen_heartbeats.clear()
+        #     self._last_epoch = epoch
 
         try:
             heartbeat_data = HeartbeatData.from_json(message.data.decode("utf-8"))
         except Exception as e:
             logger.warning(f"HeartbeatData validation failed: {e}")
             return
+
+        key = f"{heartbeat_data.epoch}:{from_peer}"
 
         # Fast in-memory check
         if key in self._seen_heartbeats:
@@ -169,9 +171,9 @@ class GossipReceiver:
     """Handle commit message (example)"""
 
     async def _handle_commit(self, message: rpc_pb2.Message, from_peer: str) -> None:
-        if self.subnet_info_tracker.epoch_data is None:
-            logger.warning("epoch_data not yet synced, skipping commit")
-            return
+        # if self.subnet_info_tracker.epoch_data is None:
+        #     logger.warning("epoch_data not yet synced, skipping commit")
+        #     return
 
         # Add commit logic here
         """
@@ -179,13 +181,14 @@ class GossipReceiver:
             logger.warning("Reveal attempted too late")
             return
         """
+        ...
 
     """Handle reveal message (example)"""
 
     async def _handle_reveal(self, message: rpc_pb2.Message, from_peer: str) -> None:
-        if self.subnet_info_tracker.epoch_data is None:
-            logger.warning("epoch_data not yet synced, skipping reveal")
-            return
+        # if self.subnet_info_tracker.epoch_data is None:
+        #     logger.warning("epoch_data not yet synced, skipping reveal")
+        #     return
 
         # Add reveal logic here
         """
@@ -196,6 +199,7 @@ class GossipReceiver:
             logger.warning("Reveal attempted outside of window")
             return
         """
+        ...
 
     """
     Handle custom message
@@ -203,8 +207,9 @@ class GossipReceiver:
     """
 
     async def _handle_custom(self, message: rpc_pb2.Message, from_peer: str) -> None:
-        if self.subnet_info_tracker.epoch_data is None:
-            logger.warning("epoch_data not yet synced, skipping custom")
-            return
+        ...
+        # if self.subnet_info_tracker.epoch_data is None:
+        #     logger.warning("epoch_data not yet synced, skipping custom")
+        #     return
 
         # Add custom logic here

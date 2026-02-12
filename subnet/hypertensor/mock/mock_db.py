@@ -49,10 +49,10 @@ class MockDatabase:
                 subnet_node_id INTEGER UNIQUE,
                 coldkey TEXT,
                 hotkey TEXT,
-                peer_id TEXT,
-                bootnode_peer_id TEXT,
-                client_peer_id TEXT,
-                bootnode TEXT,
+                peer_info TEXT,
+                bootnode_peer_info TEXT,
+                client_peer_info TEXT,
+                delegate_account TEXT,
                 identity TEXT,
                 classification TEXT,
                 delegate_reward_rate INTEGER,
@@ -124,22 +124,24 @@ class MockDatabase:
     def reset_database(self):
         """Completely wipe the database."""
         if os.path.exists(self.db_path):
-            print(f"Removing database file: {self.db_path}")
             os.remove(self.db_path)
         self._connect()
         self._create_tables()
 
     def insert_subnet_node(self, subnet_id: int, node_info: dict):
-        print(f"Inserting node, subnet_id={subnet_id}, node_info={node_info}")
         classification_json = json.dumps(_serialize_for_json(node_info.get("classification", {})))
         coldkey_reputation_json = json.dumps(_serialize_for_json(node_info.get("coldkey_reputation", {})))
+
+        peer_info_json = json.dumps(_serialize_for_json(node_info.get("peer_info", {})))
+        bootnode_peer_info_json = json.dumps(_serialize_for_json(node_info.get("bootnode_peer_info", {})))
+        client_peer_info_json = json.dumps(_serialize_for_json(node_info.get("client_peer_info", {})))
 
         c = self.conn.cursor()
         c.execute(
             """
             INSERT OR REPLACE INTO subnet_nodes (
-                subnet_id, subnet_node_id, coldkey, hotkey, peer_id,
-                bootnode_peer_id, client_peer_id, bootnode,
+                subnet_id, subnet_node_id, coldkey, hotkey, peer_info,
+                bootnode_peer_info, client_peer_info, delegate_account,
                 identity, classification,
                 delegate_reward_rate, last_delegate_reward_rate_update,
                 unique_id, non_unique,
@@ -154,10 +156,10 @@ class MockDatabase:
                 node_info["subnet_node_id"],
                 node_info["coldkey"],
                 node_info["hotkey"],
-                node_info["peer_id"],
-                node_info["bootnode_peer_id"],
-                node_info["client_peer_id"],
-                node_info["bootnode"],
+                peer_info_json,
+                bootnode_peer_info_json,
+                client_peer_info_json,
+                node_info["delegate_account"],
                 node_info["identity"],
                 classification_json,
                 node_info["delegate_reward_rate"],

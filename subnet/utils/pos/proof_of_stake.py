@@ -3,6 +3,7 @@ import time
 from typing import Dict
 
 from libp2p.peer.id import ID as PeerID
+
 from subnet.hypertensor.chain_functions import Hypertensor
 
 # Configure logging
@@ -88,9 +89,7 @@ class ProofOfStake:
         Uses the Hypertensor `proof_of_stake` RPC method that checks
         for a subnet nodes peer_id and bootstrap_peer_id being staked
         """
-        result = self.hypertensor.proof_of_stake(
-            self.subnet_id, peer_id_vector, self.min_class
-        )
+        result = self.hypertensor.proof_of_stake(self.subnet_id, peer_id_vector, self.min_class)
 
         if "result" not in result:
             return False

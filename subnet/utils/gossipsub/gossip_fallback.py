@@ -23,12 +23,12 @@ from multiaddr import (
 )
 import varint
 
-from subnet.db.database import RocksDB
 from subnet.protocols.pb.gossip_fallback_pb2 import (
     GossipFallbackRequest,
     GossipFallbackResponse,
 )
-from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
+from subnet.utils.db.database import RocksDB
+from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
 from subnet.utils.pubsub.heartbeat import HEARTBEAT_TOPIC, HeartbeatData
 
 # Configure logging
@@ -126,7 +126,6 @@ class GossipFallback:
             logger.info(f"GossipFallback Received connection from {peer_id}")
             # Wait until EOF
             msg = await stream.read(MAX_READ_LEN)
-            print(f"Read message {msg}")
             logger.info(f"GossipFallback Echoing message: {msg.decode('utf-8')}")
             await stream.write(msg)
         except StreamEOF:
@@ -147,7 +146,6 @@ class GossipFallback:
         """
         try:
             peer_id = stream.muxed_conn.peer_id
-            print(f"Received connection from {peer_id}")
 
             # Read varint-prefixed length for the message
             length_prefix = b""

@@ -44,6 +44,7 @@ class SubnetInfoTracker:
         epoch_update_intervals: list[float] = [0.0],
         start_fresh_epoch: bool = True,
     ):
+        logger.info(f"SubnetInfoTracker starting subnet_id={subnet_id}")
         for interval in epoch_update_intervals:
             if interval < 0 or interval > 1:
                 raise ValueError("Epoch update interval must be between 0 and 1")
@@ -97,14 +98,15 @@ class SubnetInfoTracker:
 
         """
         # Sync with blockchain
-        slot = await self._get_subnet_slot(self.subnet_id)
+        slot = await self.get_subnet_slot(self.subnet_id)
         if slot is None:
             return BLOCK_SECS
 
         self.epoch_data = self.hypertensor.get_subnet_epoch_data(slot)
         self.nodes = self.hypertensor.get_subnet_nodes_info_formatted(self.subnet_id)
-        if self.nodes is not None or len(self.nodes) > 0:
-            self.nodes_v2[self.epoch_data.epoch] = self.nodes
+        if self.nodes is not None:
+            if len(self.nodes) > 0:
+                self.nodes_v2[self.epoch_data.epoch] = self.nodes
 
         self.overwatch_nodes = self.hypertensor.get_all_overwatch_nodes_info_formatted()
         self.bootnodes = self.hypertensor.get_bootnodes_formatted(self.subnet_id)
@@ -115,13 +117,11 @@ class SubnetInfoTracker:
             logger.info(
                 f"SubnetInfoTracker starting in {self.epoch_data.seconds_remaining} seconds"  # noqa: E501
             )
-            logger.info(f"SubnetInfoTracker total nodes={len(self.nodes)}")
             self.started = True
             return self.epoch_data.seconds_remaining
 
         pct = self.epoch_data.percent_complete
         logger.info(f"Synced: epoch={self.epoch_data.epoch}, pct={pct:.2%}")
-        logger.debug(f"SubnetInfoTracker total nodes={len(self.nodes)}")
 
         # Always ensure we're on a new epoch for each interval
         if self.epoch_data.epoch == self.previous_interval_epoch.get(pct):
@@ -147,6 +147,11 @@ class SubnetInfoTracker:
         seconds_to_wait = min(seconds_to_wait, self.epoch_data.seconds_remaining)
         return seconds_to_wait
 
+    async def get_epoch_data(self, force: bool = False) -> EpochData | None:
+        if force:
+            await self._update_data()
+        return self.epoch_data
+
     def _seconds_to_wait(self, next_epoch_update_interval: float, current_pct: float) -> int:
         # Calculate seconds to sleep
         if next_epoch_update_interval is not None:
@@ -164,7 +169,7 @@ class SubnetInfoTracker:
                 return d
         return None
 
-    async def _get_subnet_slot(self, subnet_id: int) -> int | None:
+    async def get_subnet_slot(self, subnet_id: int) -> int | None:
         if self.slot is None or self.slot == "None":  # noqa: E711
             try:
                 slot = self.hypertensor.get_subnet_slot(self.subnet_id)
@@ -218,7 +223,7 @@ class SubnetInfoTracker:
         """
         nodes = await self.get_nodes(SubnetNodeClass.Registered, force)
         for node in nodes:
-            if peer_id.__eq__(node.peer_id):
+            if peer_id.__eq__(node.peer_info.peer_id):
                 return node.subnet_node_id
         return 0
 
@@ -233,7 +238,7 @@ class SubnetInfoTracker:
                 self.nodes = self.hypertensor.get_subnet_nodes_info_formatted(self.subnet_id)
 
         for node in self.nodes:
-            if peer_id.__eq__(node.peer_id):
+            if peer_id.__eq__(node.peer_info.peer_id):
                 return node.subnet_node_id
         return 0
 
@@ -250,8 +255,10 @@ class SubnetInfoTracker:
         try:
             if self.nodes is not None:
                 for node in self.nodes:
-                    for pid_raw in [node.peer_id, node.client_peer_id, node.bootnode_peer_id]:
-                        if pid_raw is not None and pid_raw != "":  # Check for empty strings for LocalMockHypertensor
+                    p_infos = [node.peer_info, node.bootnode_peer_info, node.client_peer_info]
+                    for p_info in p_infos:
+                        if p_info is not None and p_info.peer_id != "":
+                            pid_raw = p_info.peer_id
                             try:
                                 # Convert to PeerID format
                                 if isinstance(pid_raw, PeerID):

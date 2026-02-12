@@ -21,7 +21,9 @@ import varint
 from subnet.protocols.pb.mock_protocol_pb2 import (
     MockProtocolMessage,
 )
-from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
+
+# from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
+from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
 
 # Configure logging
 logging.basicConfig(
@@ -113,7 +115,6 @@ class MockProtocol:
             logger.info(f"MockProtocol Received connection from {peer_id}")
             # Wait until EOF
             msg = await stream.read(MAX_READ_LEN)
-            print(f"Read message {msg}")
             logger.info(f"MockProtocol Echoing message: {msg.decode('utf-8')}")
             await stream.write(msg)
         except StreamEOF:
@@ -134,7 +135,6 @@ class MockProtocol:
         """
         try:
             peer_id = stream.muxed_conn.peer_id
-            print(f"Received connection from {peer_id}")
 
             # Read varint-prefixed length for the message
             length_prefix = b""

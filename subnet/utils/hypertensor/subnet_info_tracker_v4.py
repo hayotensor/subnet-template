@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from typing import Dict, Optional
 
@@ -12,28 +13,23 @@ from subnet.hypertensor.chain_functions import (
     SubnetNodeClass,
     subnet_node_class_to_enum,
 )
-from subnet.hypertensor.config import BLOCK_SECS, SECONDS_PER_EPOCH
+from subnet.hypertensor.config import BLOCK_SECS
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
-logger = logging.getLogger("subnet-info-tracker-v2")
+logger = logging.getLogger("subnet-info-tracker-v4")
 
 
 class SubnetInfoTracker:
     """
-    Tracks subnet info and updates at each interval.
+    Tracks subnet info in a separate thread to avoid blocking the main Trio loop.
 
     Tracks:
         - Subnet epoch data
         - Subnet nodes info
-
-    Other updates can be integrated such as the subnet node info RPC query to always have the most updated subnet info.
-
-    A central class for tracking the subnets epoch data across multiple components without having to call the
-    Hypertensor RPC multiple times from multiple components.
     """
 
     def __init__(
@@ -49,110 +45,125 @@ class SubnetInfoTracker:
         self.subnet_id = subnet_id
         self.hypertensor = hypertensor
         self.start_fresh_epoch = start_fresh_epoch
-        self.termination_event = termination_event
+        self.termination_event = termination_event  # Main trio termination event
         self.epoch_data: Optional[EpochData] = None
         self.slot: int | None = None
         self.nodes: Optional[list[SubnetNodeInfo]] = None
         self.nodes_v2: Dict[int, list[SubnetNodeInfo]] = {}  # epoch -> nodes mapping
         self.bootnodes: Optional[AllSubnetBootnodes] = None
         self.overwatch_nodes: Optional[list[OverwatchNodeInfo]] = None
-        self.previous_interval: Optional[float] = None
-        self.previous_interval_epoch: int = 0
+
+        # Timing variables
         self.interval_percentage: float = 1 / (self.updates_per_epoch + 1)
-        epoch_length = self.hypertensor.get_epoch_length()
-        self.interval_duration: float = float(BLOCK_SECS * int(str(epoch_length))) * self.interval_percentage
+        # Note: We fetch epoch_length dynamically in the thread to avoid blocking __init__
+        self.interval_duration: float = 10.0  # Default, updated in loop
         self.previous_interval_timestamp: Optional[float] = None
         self.started = False
 
+        # Thread control
+        self._thread_stop_event = threading.Event()
+
     async def run(self) -> None:
         """
-        Main entry point - starts sync loop and receive loops for all topics.
-
-        Call this with: nursery.start_soon(gossip.run)
+        Main entry point - spawns the sync blocking loop in a separate thread.
         """
-        async with trio.open_nursery() as nursery:
-            # Start the sync loop
-            nursery.start_soon(self._run_sync_epoch)
+        try:
+            # Run the blocking method in a separate thread
+            # Cancellable by the main trio loop
+            await trio.to_thread.run_sync(self._run_sync_epoch_blocking, self._thread_stop_event)
+        except trio.Cancelled:
+            # Signal the thread to stop if trio cancels this task
+            self._thread_stop_event.set()
+            raise
 
-    async def _run_sync_epoch(self) -> None:
-        """Background loop that keeps epoch_data synced at each interval."""
-        # logger.info("Starting subnet info tracker")
-        self._async_stop_event = trio.Event()
+    def _run_sync_epoch_blocking(self, stop_event: threading.Event) -> None:
+        """
+        Background loop running in a thread.
+        Uses blocking blocking IO (time.sleep, synchronous RPC) safely.
+        """
+        logger.info("Starting threaded subnet info tracker (v4)")
         last_epoch = None
 
-        while not self.termination_event.is_set() and not self._async_stop_event.is_set():
+        # Initialize dynamic interval duration
+        try:
+            epoch_length = self.hypertensor.get_epoch_length()
+            self.interval_duration = float(BLOCK_SECS * int(str(epoch_length))) * self.interval_percentage
+        except Exception as e:
+            logger.warning(f"Failed to get initial epoch length: {e}")
+
+        while not stop_event.is_set() and not self.termination_event.is_set():
             try:
+                # 1. Get Slot (Blocking)
                 slot = self.get_subnet_slot()
                 if slot is None:
-                    await trio.sleep(BLOCK_SECS)
+                    time.sleep(BLOCK_SECS)
                     continue
 
-                subnet_epoch_data = self.hypertensor.get_subnet_epoch_data(slot)
-                if subnet_epoch_data is None:
-                    logger.debug("Waiting for subnet epoch data")
-                    await trio.sleep(1.0)
+                # 2. Get Epoch Data (Blocking)
+                # We fetch just the epoch number first to check for changes
+                try:
+                    current_epoch_datum = self.hypertensor.get_subnet_epoch_data(slot)
+                    current_epoch = current_epoch_datum.epoch
+                except Exception:
+                    time.sleep(1.0)
                     continue
 
-                current_epoch = subnet_epoch_data.epoch
-
+                # 3. Handle Epoch Change
                 if current_epoch != last_epoch:
-                    logger.info(f"🆕 Epoch Tracker {current_epoch}")
+                    logger.info(f"🆕 Epoch Tracker {current_epoch} (Threaded)")
                     last_epoch = current_epoch
 
-                    await self._update_data()
+                    # Perform full update (Blocking)
+                    self._update_data_blocking()
 
+                    # Sleep logic for updates within epoch
                     if self.interval_duration < self.get_seconds_remaining_until_next_epoch():
-                        logger.info(f"Sleeping for {self.interval_duration} seconds for next update")
-                        await trio.sleep(self.interval_duration)
+                        # logger.info(f"Sleeping for {self.interval_duration} seconds for next update")
+                        self._cancellable_sleep(self.interval_duration, stop_event)
 
+                    # Nested loop for multiple updates per epoch
                     while (
-                        not self.termination_event.is_set()
-                        and not self._async_stop_event.is_set()
+                        not stop_event.is_set()
+                        and not self.termination_event.is_set()
                         and self.epoch_data.epoch == current_epoch
                         and self.interval_duration < self.get_seconds_remaining_until_next_epoch()
                     ):
-                        logger.info(f"Updating subnet info for epoch {current_epoch}")
-                        await self._update_data()
-
-                        s_r = self.get_seconds_remaining_until_next_epoch()
-                        logger.info(f"Seconds remaining until next update: {s_r}")
+                        # logger.info(f"Updating subnet info for epoch {current_epoch}")
+                        self._update_data_blocking()
 
                         if self.interval_duration <= self.get_seconds_remaining_until_next_epoch():
-                            logger.info(f"(nested) Sleeping for {self.interval_duration} seconds for next update")
-                            await trio.sleep(self.interval_duration)
+                            # logger.info(f"(nested) Sleeping for {self.interval_duration} seconds")
+                            self._cancellable_sleep(self.interval_duration, stop_event)
 
+                # 4. Wait for next epoch
+                # We re-fetch to get accurate remaining time
                 try:
                     subnet_epoch_data = self.hypertensor.get_subnet_epoch_data(slot)
-                    with trio.move_on_after(
-                        max(
-                            0.1,
-                            subnet_epoch_data.seconds_remaining,
-                        )
-                    ):
-                        await self._async_stop_event.wait()
-                        break
+                    seconds_remaining = subnet_epoch_data.seconds_remaining
 
-                    if self._async_stop_event.is_set():
-                        break
+                    # Sleep until next epoch
+                    # We add a small buffer or check frequently to avoid oversleeping
+                    # But since we are in a thread, we can just sleep.
+                    # check stop_event frequently
+                    self._cancellable_sleep(max(0.1, seconds_remaining), stop_event)
 
-                    pass  # Timeout reached
                 except Exception:
-                    logger.exception("Exception in epoch loop")
-                    pass
+                    time.sleep(1.0)
+
             except Exception as e:
-                logger.warning(e, exc_info=True)
-                await trio.sleep(1.0)
+                logger.warning(f"Error in threaded loop: {e}", exc_info=True)
+                time.sleep(1.0)
 
-    async def _update_data(self) -> int:
-        """
-        Sync with blockchain and update epoch data.
+    def _cancellable_sleep(self, duration: float, stop_event: threading.Event):
+        """Sleeps for duration but wakes up if stop_event is set."""
+        # Wait returns True if the flag is set, False on timeout
+        # We want to sleep (timeout), so we ignore the return unless it's True (stop)
+        stop_event.wait(timeout=duration)
 
-        Returns:
-            int: seconds to sleep
-
-        """
+    def _update_data_blocking(self):
+        """Blocking data update sequence."""
         self.update_epoch_data()
-        self.update_nodes()
+        self.update_nodes()  # Crucial: This was missing in v3!
         self.update_overwatch_nodes()
         self.update_bootnodes()
 
@@ -167,11 +178,13 @@ class SubnetInfoTracker:
 
     def update_nodes(self) -> list[SubnetNodeInfo] | None:
         try:
+            # This is a HEAVY blocking call (2-6s usually)
             self.nodes = self.hypertensor.get_subnet_nodes_info_formatted(self.subnet_id)
             if self.nodes is not None:
                 if len(self.nodes) > 0:
                     self.nodes_v2[self.epoch_data.epoch] = self.nodes
 
+            # Cleanup old data
             if self.nodes_v2.get(self.epoch_data.epoch - 2):
                 self.nodes_v2.pop(self.epoch_data.epoch - 2)
             return self.nodes
@@ -196,8 +209,7 @@ class SubnetInfoTracker:
             return None
 
     async def get_epoch_data(self, force: bool = False) -> EpochData | None:
-        if force:
-            await self._update_data()
+        # Note: 'force' is ignored in threaded mode as updates happen autonomously
         return self.epoch_data
 
     def get_subnet_slot(self) -> int | None:
@@ -215,9 +227,6 @@ class SubnetInfoTracker:
     async def get_nodes(
         self, classification: SubnetNodeClass, start_epoch: int | None = None, force: bool = False
     ) -> list[SubnetNodeInfo]:
-        if force:
-            await self._update_data()
-
         if self.nodes is None or self.epoch_data is None:
             return []
 
@@ -237,9 +246,11 @@ class SubnetInfoTracker:
         """
         Only call if it's certain the epoch is soon or current
         """
-        if start_epoch is None:
+        if start_epoch is None and self.epoch_data:
             start_epoch = self.epoch_data.epoch
 
+        # Wait for data availability
+        # We loop here because the thread might be busy updating
         while self.nodes_v2.get(on_epoch) is None:
             # logger.info(f"Waiting for epoch {on_epoch} to be synced")
             await trio.sleep(1.0)
@@ -248,35 +259,25 @@ class SubnetInfoTracker:
             node
             for node in self.nodes_v2[on_epoch]
             if subnet_node_class_to_enum(node.classification["node_class"]).value >= classification.value
-            and node.classification["start_epoch"] <= start_epoch
+            and node.classification["start_epoch"] <= (start_epoch or on_epoch)
         ]
 
     async def is_node(self, peer_id: PeerID, force: bool = False) -> bool:
-        """
-        Returns True if the peer_id is a node in the subnet via self.nodes
-        """
         all_peer_ids = await self.get_all_peer_ids(force)
         return peer_id in all_peer_ids
 
     async def get_peer_id_node_id(self, peer_id: PeerID, force: bool = False) -> int:
-        """
-        Returns the node_id of the peer_id in the subnet via self.nodes
-        """
-        nodes = await self.get_nodes(SubnetNodeClass.Registered, force)
+        nodes = await self.get_nodes(SubnetNodeClass.Registered, force=force)
         for node in nodes:
             if peer_id.__eq__(node.peer_info.peer_id):
                 return node.subnet_node_id
         return 0
 
     def get_peer_id_node_id_sync(self, peer_id: PeerID, force: bool = False) -> int:
-        """
-        Returns the node_id of the peer_id in the subnet via self.nodes
-        """
-        if force:
-            self.nodes = self.hypertensor.get_subnet_nodes_info_formatted(self.subnet_id)
-        else:
-            if self.nodes is None:
-                self.nodes = self.hypertensor.get_subnet_nodes_info_formatted(self.subnet_id)
+        # Note: force is ignored as we read cached state
+        if self.nodes is None:
+            # Fallback if accessed before thread starts (rare)
+            return 0
 
         for node in self.nodes:
             if peer_id.__eq__(node.peer_info.peer_id):
@@ -284,13 +285,7 @@ class SubnetInfoTracker:
         return 0
 
     async def get_all_peer_ids(self, force: bool = False) -> list[PeerID]:
-        """
-        Returns a list of all peer_ids, client_peer_ids, and bootnode_peer_ids, and subnet bootnode peer IDs in the
-        subnet via self.nodes
-        """
-        if force:
-            await self._update_data()
-
+        # 'force' ignored
         all_ids = []
 
         try:
@@ -301,7 +296,6 @@ class SubnetInfoTracker:
                         if p_info is not None and p_info.peer_id != "":
                             pid_raw = p_info.peer_id
                             try:
-                                # Convert to PeerID format
                                 if isinstance(pid_raw, PeerID):
                                     all_ids.append(pid_raw)
                                 else:
@@ -314,9 +308,8 @@ class SubnetInfoTracker:
         try:
             if self.bootnodes is not None and self.bootnodes.subnet_bootnodes is not None:
                 for peer_id, _ in self.bootnodes.subnet_bootnodes:
-                    if peer_id is not None and peer_id != "":  # Check for empty strings for LocalMockHypertensor
+                    if peer_id is not None and peer_id != "":
                         try:
-                            # Convert to PeerID format
                             if isinstance(peer_id, PeerID):
                                 all_ids.append(peer_id)
                             else:
@@ -326,7 +319,6 @@ class SubnetInfoTracker:
         except Exception as e:
             logger.error(f"get_all_peer_ids: Exception: {e}")
 
-        # Get overwatch node peer IDs matching the current subnet
         try:
             if self.overwatch_nodes is not None and len(self.overwatch_nodes) > 0:
                 for overwatch_node in self.overwatch_nodes:

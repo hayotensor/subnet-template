@@ -13,6 +13,7 @@ from libp2p.kad_dht.kad_dht import (
     KadDHT,
 )
 from libp2p.network.swarm import Swarm
+from libp2p.peer.persistent import create_async_peerstore, create_sync_peerstore, create_sync_rocksdb_peerstore
 from libp2p.pubsub.gossipsub import GossipSub
 from libp2p.pubsub.pubsub import Pubsub
 from libp2p.records.pubkey import PublicKeyValidator
@@ -28,7 +29,6 @@ import trio
 
 from subnet.config import GOSSIPSUB_PROTOCOL_ID
 from subnet.consensus.consensus import Consensus
-from subnet.db.database import RocksDB
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.utils.connection import (
@@ -36,14 +36,15 @@ from subnet.utils.connection import (
     maintain_connections,
 )
 from subnet.utils.connections.bootstrap import connect_to_bootstrap_nodes
+from subnet.utils.db.database import RocksDB
 from subnet.utils.gossipsub.gossip_receiver import GossipReceiver
-from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
-from subnet.utils.patches import apply_all_patches
 
-# from subnet.utils.pos.pos_noise_transport import (
-#     PROTOCOL_ID as POS_PROTOCOL_ID,
-#     POSNoiseTransport,
-# )
+# from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
+# from subnet.utils.hypertensor.subnet_info_tracker_v2 import SubnetInfoTracker
+from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
+
+# from subnet.utils.hypertensor.subnet_info_tracker_v4 import SubnetInfoTracker
+from subnet.utils.patches import apply_all_patches
 from subnet.utils.pos.pos_transport import (
     PROTOCOL_ID as POS_PROTOCOL_ID,
     POSTransport,
@@ -82,26 +83,31 @@ class Server:
         self,
         *,
         port: int,
+        peerstore_db_path: str | None = None,
         bootstrap_addrs: List[str] | None = None,
         key_pair: KeyPair,
         db: RocksDB,
         subnet_id: int = 0,
+        subnet_slot: int = 3,
         subnet_node_id: int = 0,
         hypertensor: Hypertensor | LocalMockHypertensor,
         is_bootstrap: bool = False,
         **kwargs,
     ):
+        logger.info(f"Server starting subnet_id={subnet_id}")
         self.port = port
         self.bootstrap_addrs = bootstrap_addrs
         self.key_pair = key_pair
         self.subnet_id = subnet_id
+        self.subnet_slot = subnet_slot
         self.subnet_node_id = subnet_node_id
         self.hypertensor = hypertensor
         self.db = db
         self.is_bootstrap = is_bootstrap
+        self.peerstore_db_path = peerstore_db_path
 
     async def run(self):
-        print("running server gossip")
+        logger.info(f"Server running subnet_id={self.subnet_id}")
         from libp2p.utils.address_validation import (
             get_available_interfaces,
             get_optimal_binding_address,
@@ -121,6 +127,7 @@ class Server:
                 noise_privkey=create_new_x25519_key_pair().private_key,
             ),
             pos=proof_of_stake,
+            log_level=logging.INFO if self.is_bootstrap else logging.DEBUG,
         )
 
         pos_secio_transport = POSTransport(
@@ -128,6 +135,7 @@ class Server:
                 self.key_pair,
             ),
             pos=proof_of_stake,
+            log_level=logging.INFO if self.is_bootstrap else logging.DEBUG,
         )
 
         secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
@@ -135,14 +143,28 @@ class Server:
             TProtocol(secio.ID): pos_secio_transport,
         }
 
+        if self.peerstore_db_path is not None:
+            # peerstore = create_async_peerstore(
+            #     db_path=self.peerstore_db_path,
+            #     backend="leveldb",
+            # )
+            # peerstore = create_sync_peerstore(
+            #     db_path=self.peerstore_db_path,
+            #     backend="leveldb",
+            # )
+            raise NotImplementedError("Persistent peerstore not implemented.")
+        else:
+            peerstore = None
+
         # Create a new libp2p host
         # host = new_host(key_pair=self.key_pair)
-        host = new_host(key_pair=self.key_pair, sec_opt=secure_transports_by_protocol)
+        host = new_host(key_pair=self.key_pair, sec_opt=secure_transports_by_protocol, peerstore_opt=peerstore)
 
         # Increase connection limits to prevent aggressive pruning (EOF/0-byte reads)
         # This is done manually because new_host() only exposes this via QUIC config.
         # We cast to Swarm so the IDE/type checker recognizes the connection_config.
         cast("Swarm", host.get_network()).connection_config.max_connections_per_peer = 10
+
         # Log available protocols
         logger.info(f"Host ID: {host.get_id()}")
         logger.info(
@@ -185,13 +207,9 @@ class Server:
                 subnet_info_tracker = SubnetInfoTracker(
                     termination_event,
                     self.subnet_id,
+                    self.subnet_slot,
                     self.hypertensor,
-                    epoch_update_intervals=[
-                        0.0,
-                        0.5,
-                    ],  # Update at the start and middle of each subnet epoch
                 )
-                nursery.start_soon(subnet_info_tracker.run)
 
                 # Display the random walk
                 nursery.start_soon(demonstrate_random_walk_discovery, dht, 30)
@@ -279,4 +297,4 @@ class Server:
 
             nursery.cancel_scope.cancel()
 
-        print("Application shutdown complete")  # Print shutdown message
+        print("Application shutdown complete")

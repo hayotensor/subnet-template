@@ -11,24 +11,20 @@ import time
 
 from dotenv import load_dotenv
 from libp2p.crypto.ed25519 import (
-    Ed25519PrivateKey,
     create_new_key_pair,
 )
-from libp2p.crypto.keys import KeyPair
-from libp2p.crypto.secp256k1 import Secp256k1PrivateKey
 from libp2p.peer.id import ID as PeerID
-from libp2p.peer.pb import crypto_pb2
 from substrateinterface import (
     Keypair as SubstrateKeypair,
     KeypairType,
 )
 import trio
 
-from subnet.db.database import RocksDB
 from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.server.server import Server
 from subnet.utils.crypto.store_key import get_key_pair
+from subnet.utils.db.database import RocksDB
 
 load_dotenv(os.path.join(Path.cwd(), ".env"))
 
@@ -58,7 +54,6 @@ python -m subnet.cli.run_node \
 --private_key_path bootnode.key \
 --port 38960 \
 --subnet_id 1 \
---subnet_node_id 1 \
 --no_blockchain_rpc \
 --is_bootstrap
 
@@ -142,9 +137,8 @@ python -m subnet.cli.run_node \
 --private_key_path bootnode.key \
 --port 38960 \
 --subnet_id 1 \
---subnet_node_id 1 \
---local_rpc \
---is_bootstrap
+--is_bootstrap \
+--local_rpc
 
 # Connect to bootnode
 
@@ -152,8 +146,9 @@ python -m subnet.cli.run_node \
 --private_key_path alith.key \
 --port 38961 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
---subnet_id 1 \
+--subnet_id 128001 \
 --subnet_node_id 1 \
+--tensor_private_key 0x883189525adc71f940606d02671bd8b7dfe3b2f75e2a6ed1f5179ac794566b40 \
 --local_rpc
 
 python -m subnet.cli.run_node \
@@ -162,6 +157,7 @@ python -m subnet.cli.run_node \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 2 \
+--tensor_private_key 0x6cbf451fc5850e75cd78055363725dcf8c80b3f1dfb9c29d131fece6dfb72490 \
 --local_rpc
 
 python -m subnet.cli.run_node \
@@ -170,6 +166,7 @@ python -m subnet.cli.run_node \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 3 \
+--tensor_private_key 0x51b7c50c1cd27de89a361210431e8f03a7ddda1a0c8c5ff4e4658ca81ac02720 \
 --local_rpc
 
         """,
@@ -200,25 +197,32 @@ python -m subnet.cli.run_node \
     parser.add_argument(
         "--is_bootstrap",
         action="store_true",
-        help="Start a bootnode that doesn't publish messages or run consensus. ",
+        help="Start a bootnode/bootstrap node that doesn't publish messages or run consensus. ",
     )
 
     parser.add_argument("--base_path", type=str, default=None, help="Specify custom base path")
 
     parser.add_argument(
+        "--peerstore_db_path",
+        type=str,
+        default=None,
+        help="[Currently not in use] Specify persistent peerstore db path",
+    )
+
+    parser.add_argument(
         "--private_key_path",
         type=str,
         default=None,
-        help="Path to the private key file. ",
+        help="Path to the private key file for peer ID. ",
     )
 
-    parser.add_argument("--subnet_id", type=int, default=1, help="Subnet ID this node belongs to. ")
+    parser.add_argument("--subnet_id", type=int, default=0, help="Subnet ID this node belongs to. ")
 
     parser.add_argument(
         "--subnet_node_id",
         type=int,
         default=0,
-        help="Subnet node ID this node belongs to. ",
+        help="Subnet node ID this node belongs to. This ID was logged on registration.",
     )
 
     parser.add_argument("--no_blockchain_rpc", action="store_true", help="[Testing] Run with no RPC")
@@ -233,17 +237,16 @@ python -m subnet.cli.run_node \
         "--tensor_private_key",
         type=str,
         required=False,
-        help="[Testing] Hypertensor blockchain private key",
+        help="Hypertensor blockchain private key, the pk of the hotkey used for consensus extinsics",
     )
 
     parser.add_argument(
         "--phrase",
         type=str,
         required=False,
-        help="[Testing] Coldkey phrase that controls actions which include funds, such as registering, and staking",
+        help="Coldkey phrase that controls actions which include funds, such as registering, and staking",
     )
 
-    # add option to use verbose logging
     parser.add_argument(
         "--verbose",
         action="store_true",
@@ -282,11 +285,19 @@ def main() -> None:
         key_pair = get_key_pair(args.private_key_path)
 
     if not args.base_path:
-        base_path = f"/tmp/{random.randint(100, 1000000)}"
+        if args.is_bootstrap:
+            base_path = "/tmp/bootstrap"
+        else:
+            base_path = f"/tmp/{random.randint(100, 1000000)}"
     else:
         base_path = args.base_path
 
-    db = RocksDB(base_path, args.subnet_id)
+    db = RocksDB(base_path)
+
+    if not args.peerstore_db_path:
+        peerstore_db_path = f"/tmp/peerstore_{port}.ldb"
+    else:
+        peerstore_db_path = args.peerstore_db_path
 
     hotkey = None
     start_epoch = None
@@ -313,6 +324,13 @@ def main() -> None:
             # Default to using PHRASE if no other options are provided
             hypertensor = Hypertensor(rpc, PHRASE)
 
+        if args.subnet_id < 128000:
+            real_subnet_id = hypertensor.get_subnet_id_from_friendly_id(args.subnet_id)
+            logger.info(
+                f"Subnet ID {args.subnet_id} is less than 128000 and likely a friendly ID, using real subnet ID {real_subnet_id}"
+            )
+            args.subnet_id = int(str(real_subnet_id))
+
         if not args.is_bootstrap:
             if hotkey is not None:
                 result = hypertensor.interface.query("System", "Account", [hotkey])
@@ -331,23 +349,25 @@ def main() -> None:
                     f"Subnet node hotkey does not match. Expected: {subnet_node_info.hotkey}, Actual: {hotkey}"
                 )
 
-            if PeerID.from_pubkey(key_pair.public_key).__eq__(subnet_node_info.peer_id):
+            if not PeerID.from_pubkey(key_pair.public_key).__eq__(subnet_node_info.peer_info.peer_id):
                 logger.warning(
                     "Subnet node peer ID does not match. This can be ignored if running a bootnode or client peer. "
-                    f"Expected: {subnet_node_info.peer_id}, Actual: {PeerID.from_pubkey(key_pair.public_key).to_base58()}"  # noqa: E501
+                    f"Expected: {subnet_node_info.peer_info.peer_id}, Actual: {PeerID.from_pubkey(key_pair.public_key).to_base58()}"  # noqa: E501
                 )
 
-            if PeerID.from_pubkey(key_pair.public_key).__eq__(subnet_node_info.bootnode_peer_id):
-                logger.warning(
-                    "Subnet node bootnode peer ID does not match. This can be ignored if you're not running a bootnode. "  # noqa: E501
-                    f"Expected: {subnet_node_info.bootnode_peer_id}, Actual: {PeerID.from_pubkey(key_pair.public_key).to_base58()}"  # noqa: E501
-                )
+            if subnet_node_info.bootnode_peer_info:
+                if not PeerID.from_pubkey(key_pair.public_key).__eq__(subnet_node_info.bootnode_peer_info.peer_id):
+                    logger.warning(
+                        "Subnet node bootnode peer ID does not match. This can be ignored if you're not running a bootnode. "  # noqa: E501
+                        f"Expected: {subnet_node_info.bootnode_peer_info.peer_id}, Actual: {PeerID.from_pubkey(key_pair.public_key).to_base58()}"  # noqa: E501
+                    )
 
-            if PeerID.from_pubkey(key_pair.public_key).__eq__(subnet_node_info.client_peer_id):
-                logger.warning(
-                    "Subnet node client peer ID does not match. This can be ignored if you're not running a client peer. "  # noqa: E501
-                    f"Expected: {subnet_node_info.client_peer_id}, Actual: {PeerID.from_pubkey(key_pair.public_key).to_base58()}"  # noqa: E501
-                )
+            if subnet_node_info.client_peer_info:
+                if not PeerID.from_pubkey(key_pair.public_key).__eq__(subnet_node_info.client_peer_info.peer_id):
+                    logger.warning(
+                        "Subnet node client peer ID does not match. This can be ignored if you're not running a client peer. "  # noqa: E501
+                        f"Expected: {subnet_node_info.client_peer_info.peer_id}, Actual: {PeerID.from_pubkey(key_pair.public_key).to_base58()}"  # noqa: E501
+                    )
 
             start_epoch = subnet_node_info.classification["start_epoch"]
             if start_epoch is None:
@@ -367,12 +387,13 @@ def main() -> None:
             insert_mock_overwatch_node=True if not args.bootstrap else False,
         )
 
+    slot = hypertensor.get_subnet_slot(args.subnet_id)
+    slot = int(str(slot))
+
     # Wait to start the node until the node is fully registered on-chain
     # NOTE: Once a node registers on-chain, it will not be considered fully registered to other nodes
     # until the following epoch to ensure it starts on a fresh epoch.
     if start_epoch is not None:
-        slot = hypertensor.get_subnet_slot(args.subnet_id)
-        slot = int(str(slot))
         subnet_epoch_data = hypertensor.get_subnet_epoch_data(slot)
         current_epoch = subnet_epoch_data.epoch
         logger.info(f"Current epoch is {current_epoch}")
@@ -398,6 +419,7 @@ def main() -> None:
     try:
         server = Server(
             port=port,
+            peerstore_db_path=None,  # TODO: Libp2p persistent peerstore needs work to be implemented
             bootstrap_addrs=args.bootstrap,
             key_pair=key_pair,
             db=db,

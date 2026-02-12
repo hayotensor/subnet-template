@@ -35,7 +35,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()],
 )
-logger = logging.getLogger("local-hypertensor")
+logger = logging.getLogger("local-chain-functions")
 
 
 class LocalMockHypertensor:
@@ -141,16 +141,19 @@ class LocalMockHypertensor:
         bootnode_peer_id: str = "",
         client_peer_id: str = "",
     ):
+        bootnode_peer_info = {"peer_id": bootnode_peer_id, "multiaddr": ""} if bootnode_peer_id else None
+        client_peer_info = {"peer_id": client_peer_id, "multiaddr": ""} if client_peer_id else None
+
         self.db.insert_subnet_node(
             subnet_id=subnet_id,
             node_info=dict(
                 subnet_node_id=subnet_node_id,
                 coldkey="",
                 hotkey="",
-                peer_id=peer_id,
-                bootnode_peer_id=bootnode_peer_id,
-                client_peer_id=client_peer_id,
-                bootnode="",
+                peer_info={"peer_id": peer_id, "multiaddr": None},
+                bootnode_peer_info=bootnode_peer_info,
+                client_peer_info=client_peer_info,
+                delegate_account="",
                 identity="",
                 classification={
                     "node_class": "Validator",
@@ -319,10 +322,10 @@ class LocalMockHypertensor:
                     SubnetNode(
                         id=node_dict.get("subnet_node_id"),
                         hotkey=node_dict.get("hotkey", ""),
-                        peer_id=node_dict.get("peer_id", ""),
-                        bootnode_peer_id=node_dict.get("bootnode_peer_id", ""),
-                        bootnode=node_dict.get("bootnode", ""),
-                        client_peer_id=node_dict.get("client_peer_id", ""),
+                        peer_info=node_dict.get("peer_info"),
+                        bootnode_peer_info=node_dict.get("bootnode_peer_info"),
+                        client_peer_info=node_dict.get("client_peer_info"),
+                        delegate_account=node_dict.get("delegate_account"),
                         classification=classification,
                         delegate_reward_rate=node_dict.get("delegate_reward_rate", 0),
                         last_delegate_reward_rate_update=node_dict.get("last_delegate_reward_rate_update", 0),
@@ -526,10 +529,10 @@ class LocalMockHypertensor:
                             subnet_node_id=node_dict["subnet_node_id"],
                             coldkey=node_dict["coldkey"],
                             hotkey=node_dict["hotkey"],
-                            peer_id=node_dict["peer_id"],
-                            bootnode_peer_id=node_dict["bootnode_peer_id"],
-                            client_peer_id=node_dict["client_peer_id"],
-                            bootnode=node_dict["bootnode"],
+                            peer_info=node_dict["peer_info"],
+                            bootnode_peer_info=node_dict.get("bootnode_peer_info"),
+                            client_peer_info=node_dict.get("client_peer_info"),
+                            delegate_account=node_dict.get("delegate_account"),
                             identity=node_dict["identity"],
                             classification=classification,
                             delegate_reward_rate=0,
@@ -542,8 +545,8 @@ class LocalMockHypertensor:
                             coldkey_reputation=coldkey_reputation,
                             subnet_node_reputation=int(node_dict.get("subnet_node_reputation", 0)),
                             node_slot_index=int(node_dict.get("node_slot_index", 0)),
-                            consecutive_idle_epochs=int(node_dict.get("consecutive_idle_epochs", 0)),
-                            consecutive_included_epochs=int(node_dict.get("consecutive_included_epochs", 0)),
+                            consecutive_idle_epochs=0,
+                            consecutive_included_epochs=0,
                         )
                     )
 
@@ -587,10 +590,10 @@ class LocalMockHypertensor:
                         subnet_node_id=node_dict["subnet_node_id"],
                         coldkey=node_dict["coldkey"],
                         hotkey=node_dict["hotkey"],
-                        peer_id=node_dict["peer_id"],
-                        bootnode_peer_id=node_dict["bootnode_peer_id"],
-                        client_peer_id=node_dict["client_peer_id"],
-                        bootnode=node_dict["bootnode"],
+                        peer_info=node_dict["peer_info"],
+                        bootnode_peer_info=node_dict.get("bootnode_peer_info"),
+                        client_peer_info=node_dict.get("client_peer_info"),
+                        delegate_account=node_dict.get("delegate_account"),
                         identity=node_dict["identity"],
                         classification=classification,
                         delegate_reward_rate=0,
@@ -751,10 +754,10 @@ class LocalMockHypertensor:
                             subnet_node_id=node_dict["subnet_node_id"],
                             coldkey=node_dict["coldkey"],
                             hotkey=node_dict["hotkey"],
-                            peer_id=node_dict["peer_id"],
-                            bootnode_peer_id=node_dict["bootnode_peer_id"],
-                            client_peer_id=node_dict["client_peer_id"],
-                            bootnode=node_dict["bootnode"],
+                            peer_info=node_dict["peer_info"],
+                            bootnode_peer_info=node_dict.get("bootnode_peer_info"),
+                            client_peer_info=node_dict.get("client_peer_info"),
+                            delegate_account=node_dict.get("delegate_account"),
                             identity=node_dict["identity"],
                             classification=classification,
                             delegate_reward_rate=0,
@@ -803,11 +806,10 @@ class LocalMockHypertensor:
             initial_coldkeys=[],
             initial_coldkey_data=[],
             max_registered_nodes=0,
-            owner="000000000000000000000000000000000000000000000000",
-            pending_owner="000000000000000000000000000000000000000000000000",
+            owner="0x0000000000000000000000000000000000000000",
+            pending_owner="0x0000000000000000000000000000000000000000",
             registration_epoch=0,
             prev_pause_epoch=0,
-            key_types=0,
             slot_index=3,
             slot_assignment=0,
             subnet_node_min_weight_decrease_reputation_threshold=0,
@@ -863,17 +865,26 @@ class LocalMockHypertensor:
                 node_class_enum = subnet_node_class_to_enum(node_class_name)
 
                 if node_class_enum.value > SubnetNodeClass.Registered.value:
-                    node_bootnodes.append((node_dict["peer_id"], node_dict["bootnode"]))
+                    if node_dict.get("bootnode_peer_info") is None:
+                        continue
+                    node_bootnodes.append(
+                        (node_dict["bootnode_peer_info"]["peer_id"], node_dict["bootnode_peer_info"]["multiaddr"])
+                    )
                 else:
-                    registered_bootnodes.append((node_dict["peer_id"], node_dict["bootnode"]))
+                    if node_dict.get("bootnode_peer_info") is None:
+                        continue
+                    registered_bootnodes.append(
+                        (node_dict["peer_info"]["peer_id"], node_dict["bootnode_peer_info"]["multiaddr"])
+                    )
 
             return (
                 subnet_bootnodes,
                 node_bootnodes,
                 registered_bootnodes,
             )
-        except Exception:
-            return None
+        except Exception as e:
+            logger.error(f"Error getting bootnodes: {e}")
+            return [], [], []
 
     def get_validators_and_attestors_formatted(self, subnet_id: int) -> Optional[List["SubnetNodeInfo"]]:
         """

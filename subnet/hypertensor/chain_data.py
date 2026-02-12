@@ -2,7 +2,7 @@ import ast
 from dataclasses import dataclass
 from enum import Enum
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 
 import scalecodec
 from scalecodec.base import RuntimeConfiguration, ScaleBytes
@@ -54,7 +54,6 @@ custom_rpc_type_registry = {
                 ["pending_owner", "Option<[u8; 20]>"],
                 ["registration_epoch", "Option<u32>"],
                 ["prev_pause_epoch", "u32"],
-                ["key_types", "BTreeSet<KeyType>"],
                 ["slot_index", "Option<u32>"],
                 ["slot_assignment", "Option<u32>"],
                 ["subnet_node_min_weight_decrease_reputation_threshold", "u128"],
@@ -86,13 +85,11 @@ custom_rpc_type_registry = {
                 "Paused",
             ],
         },
-        "KeyType": {
-            "type": "enum",
-            "value_list": [
-                "Rsa",
-                "Ed25519",
-                "Secp256k1",
-                "Ecdsa",
+        "PeerInfo": {
+            "type": "struct",
+            "type_mapping": [
+                ["peer_id", "OpaquePeerId"],
+                ["multiaddr", "Option<BoundedVec<u8, DefaultMaxVectorLength>>"],
             ],
         },
         "SubnetNode": {
@@ -100,10 +97,9 @@ custom_rpc_type_registry = {
             "type_mapping": [
                 ["id", "u32"],
                 ["hotkey", "[u8; 20]"],
-                ["peer_id", "OpaquePeerId"],
-                ["bootnode_peer_id", "OpaquePeerId"],
-                ["bootnode", "Option<BoundedVec<u8, DefaultMaxVectorLength>>"],
-                ["client_peer_id", "OpaquePeerId"],
+                ["peer_info", "PeerInfo"],
+                ["bootnode_peer_info", "Option<PeerInfo>"],
+                ["client_peer_info", "Option<PeerInfo>"],
                 ["classification", "SubnetNodeClassification"],
                 ["delegate_reward_rate", "u128"],
                 ["last_delegate_reward_rate_update", "u32"],
@@ -144,6 +140,13 @@ custom_rpc_type_registry = {
                 ["subnet_node_rewards", "u128"],
             ],
         },
+        "DelegateAccount": {
+            "type": "struct",
+            "type_mapping": [
+                ["account_id", "[u8; 20]"],
+                ["rate", "u128"],
+            ],
+        },
         "SubnetNodeInfo": {
             "type": "struct",
             "type_mapping": [
@@ -151,10 +154,10 @@ custom_rpc_type_registry = {
                 ["subnet_node_id", "u32"],
                 ["coldkey", "[u8; 20]"],
                 ["hotkey", "[u8; 20]"],
-                ["peer_id", "PeerId"],
-                ["bootnode_peer_id", "PeerId"],
-                ["client_peer_id", "PeerId"],
-                ["bootnode", "Option<BoundedVec<u8, DefaultMaxVectorLength>>"],
+                ["peer_info", "PeerInfo"],
+                ["bootnode_peer_info", "Option<PeerInfo>"],
+                ["client_peer_info", "Option<PeerInfo>"],
+                ["delegate_account", "Option<DelegateAccount<[u8; 20]>>"],
                 ["identity", "ColdkeyIdentityData"],
                 ["classification", "SubnetNodeClassification"],
                 ["delegate_reward_rate", "u128"],
@@ -282,7 +285,6 @@ custom_rpc_type_registry = {
                 ["description", "Vec<u8>"],
                 ["misc", "Vec<u8>"],
                 ["initial_coldkeys", "BTreeMap<[u8; 20], u32>"],
-                ["key_types", "BTreeSet<KeyType>"],
             ],
         },
         "OverwatchNodeInfo": {
@@ -297,7 +299,6 @@ custom_rpc_type_registry = {
             ],
         },
         "PeerId": "Vec<u8>",
-        "BTreeSet<KeyType>": "Vec<KeyType>",
         "BTreeSet<[u8; 20]>": "Vec<[u8; 20]>",
         "BTreeSet<BoundedVec<u8, DefaultMaxVectorLength>>": "Vec<BoundedVec<u8, DefaultMaxVectorLength>>",
         "BoundedVec<u8, DefaultMaxVectorLength>": "Vec<u8>",
@@ -343,7 +344,7 @@ def from_scale_encoding(
     type_name: ChainDataType,
     is_vec: bool = False,
     is_option: bool = False,
-) -> Optional[Dict]:
+) -> Dict | None:
     """
     Returns the decoded data from the SCALE encoded input.
 
@@ -354,7 +355,7 @@ def from_scale_encoding(
       is_option (bool): Whether the input is an Option.
 
     Returns:
-      Optional[Dict]: The decoded data
+      Dict | None: The decoded data
 
     """
     type_string = type_name.name
@@ -366,9 +367,7 @@ def from_scale_encoding(
     return from_scale_encoding_using_type_string(input, type_string)
 
 
-def from_scale_encoding_using_type_string(
-    input: Union[List[int], bytes, ScaleBytes], type_string: str
-) -> Optional[Dict]:
+def from_scale_encoding_using_type_string(input: Union[List[int], bytes, ScaleBytes], type_string: str) -> Dict | None:
     """
     Returns the decoded data from the SCALE encoded input using the type string.
 
@@ -377,7 +376,7 @@ def from_scale_encoding_using_type_string(
       type_string (str): The type string.
 
     Returns:
-      Optional[Dict]: The decoded data
+      Dict | None: The decoded data
 
     """
     if isinstance(input, ScaleBytes):
@@ -414,6 +413,30 @@ def get_runtime_config() -> RuntimeConfiguration:
     rpc_runtime_config.create_scale_object("BTreeMap<[u8; 20], u32>")
 
     return rpc_runtime_config
+
+
+@dataclass
+class PeerInfo:
+    """
+    Dataclass for model peer metadata.
+    """
+
+    peer_id: str
+    multiaddr: str | None
+
+    @classmethod
+    def fix_decoded_values(cls, data_decoded: Any) -> "PeerInfo":
+        """Fixes the values of the PeerInfo object."""
+        data_decoded["peer_id"] = data_decoded["peer_id"]
+        data_decoded["multiaddr"] = data_decoded["multiaddr"]
+
+        return cls(**data_decoded)
+
+
+@dataclass
+class DelegateAccount:
+    account_id: str
+    rate: int
 
 
 @dataclass
@@ -533,7 +556,6 @@ class SubnetInfo:
     pending_owner: str
     registration_epoch: int
     prev_pause_epoch: int
-    key_types: list
     slot_index: int
     slot_assignment: int
     subnet_node_min_weight_decrease_reputation_threshold: int
@@ -588,7 +610,6 @@ class SubnetInfo:
         data_decoded["pending_owner"] = data_decoded["pending_owner"]
         data_decoded["registration_epoch"] = data_decoded["registration_epoch"]
         data_decoded["prev_pause_epoch"] = data_decoded["prev_pause_epoch"]
-        data_decoded["key_types"] = data_decoded["key_types"]
         data_decoded["slot_index"] = data_decoded["slot_index"]
         data_decoded["slot_assignment"] = data_decoded["slot_assignment"]
         data_decoded["subnet_node_min_weight_decrease_reputation_threshold"] = data_decoded[
@@ -695,11 +716,10 @@ class SubnetInfo:
             initial_coldkeys=[],
             initial_coldkey_data=[],
             max_registered_nodes=0,
-            owner="000000000000000000000000000000000000000000000000",
-            pending_owner="000000000000000000000000000000000000000000000000",
+            owner="0x0000000000000000000000000000000000000000",
+            pending_owner="0x0000000000000000000000000000000000000000",
             registration_epoch=0,
             prev_pause_epoch=0,
-            key_types=0,
             slot_index=0,
             slot_assignment=0,
             subnet_node_min_weight_decrease_reputation_threshold=0,
@@ -833,12 +853,12 @@ class SubnetNodeInfo:
     subnet_node_id: int
     coldkey: str
     hotkey: str
-    peer_id: str
-    bootnode_peer_id: str
-    client_peer_id: str
-    bootnode: str
+    peer_info: PeerInfo
+    bootnode_peer_info: PeerInfo | None
+    client_peer_info: PeerInfo | None
     identity: dict
     classification: dict
+    delegate_account: DelegateAccount | None
     delegate_reward_rate: int
     last_delegate_reward_rate_update: int
     unique: str
@@ -852,6 +872,16 @@ class SubnetNodeInfo:
     consecutive_idle_epochs: int
     consecutive_included_epochs: int
 
+    def __post_init__(self):
+        if isinstance(self.peer_info, dict):
+            self.peer_info = PeerInfo(**self.peer_info)
+        if isinstance(self.bootnode_peer_info, dict):
+            self.bootnode_peer_info = PeerInfo(**self.bootnode_peer_info)
+        if isinstance(self.client_peer_info, dict):
+            self.client_peer_info = PeerInfo(**self.client_peer_info)
+        if isinstance(self.delegate_account, dict):
+            self.delegate_account = DelegateAccount(**self.delegate_account)
+
     @classmethod
     def fix_decoded_values(cls, data_decoded: Any) -> "SubnetNodeInfo":
         """Fixes the values of the SubnetNodeInfo object."""
@@ -859,12 +889,12 @@ class SubnetNodeInfo:
         data_decoded["subnet_node_id"] = data_decoded["subnet_node_id"]
         data_decoded["coldkey"] = data_decoded["coldkey"]
         data_decoded["hotkey"] = data_decoded["hotkey"]
-        data_decoded["peer_id"] = data_decoded["peer_id"]
-        data_decoded["bootnode_peer_id"] = data_decoded["bootnode_peer_id"]
-        data_decoded["client_peer_id"] = data_decoded["client_peer_id"]
-        data_decoded["bootnode"] = data_decoded["bootnode"]
+        data_decoded["peer_info"] = data_decoded["peer_info"]
+        data_decoded["bootnode_peer_info"] = data_decoded["bootnode_peer_info"]
+        data_decoded["client_peer_info"] = data_decoded["client_peer_info"]
         data_decoded["identity"] = data_decoded["identity"]
         data_decoded["classification"] = data_decoded["classification"]
+        data_decoded["delegate_account"] = data_decoded["delegate_account"]
         data_decoded["delegate_reward_rate"] = data_decoded["delegate_reward_rate"]
         data_decoded["last_delegate_reward_rate_update"] = data_decoded["last_delegate_reward_rate_update"]
         data_decoded["unique"] = data_decoded["unique"]
@@ -926,12 +956,12 @@ class SubnetNodeInfo:
         subnet_node_info = SubnetNodeInfo(
             subnet_id=0,
             subnet_node_id=0,
-            coldkey="000000000000000000000000000000000000000000000000",
-            hotkey="000000000000000000000000000000000000000000000000",
-            peer_id="000000000000000000000000000000000000000000000000",
-            bootnode_peer_id="000000000000000000000000000000000000000000000000",
-            client_peer_id="000000000000000000000000000000000000000000000000",
-            bootnode="",
+            coldkey="0x0000000000000000000000000000000000000000",
+            hotkey="0x0000000000000000000000000000000000000000",
+            peer_info=PeerInfo(peer_id="000000000000000000000000000000000000000000000000", multiaddr=None),
+            bootnode_peer_info=None,
+            client_peer_info=None,
+            delegate_account=None,
             identity=dict(),
             classification=dict(),
             delegate_reward_rate=0,
@@ -958,25 +988,35 @@ class SubnetNode:
 
     id: int
     hotkey: str
-    peer_id: str
-    bootnode_peer_id: str
-    bootnode: str
-    client_peer_id: str
+    peer_info: PeerInfo
+    bootnode_peer_info: PeerInfo | None
+    client_peer_info: PeerInfo | None
+    delegate_account: DelegateAccount | None
     classification: str
     delegate_reward_rate: int
     last_delegate_reward_rate_update: int
     unique: str
     non_unique: str
 
+    def __post_init__(self):
+        if isinstance(self.peer_info, dict):
+            self.peer_info = PeerInfo(**self.peer_info)
+        if isinstance(self.bootnode_peer_info, dict):
+            self.bootnode_peer_info = PeerInfo(**self.bootnode_peer_info)
+        if isinstance(self.client_peer_info, dict):
+            self.client_peer_info = PeerInfo(**self.client_peer_info)
+        if isinstance(self.delegate_account, dict):
+            self.delegate_account = DelegateAccount(**self.delegate_account)
+
     @classmethod
     def fix_decoded_values(cls, data_decoded: Any) -> "SubnetNode":
         """Fixes the values of the SubnetNode object."""
         data_decoded["id"] = data_decoded["id"]
         data_decoded["hotkey"] = data_decoded["hotkey"]
-        data_decoded["peer_id"] = data_decoded["peer_id"]
-        data_decoded["bootnode_peer_id"] = data_decoded["bootnode_peer_id"]
-        data_decoded["client_peer_id"] = data_decoded["client_peer_id"]
-        data_decoded["bootnode"] = data_decoded["bootnode"]
+        data_decoded["peer_info"] = data_decoded["peer_info"]
+        data_decoded["bootnode_peer_info"] = data_decoded["bootnode_peer_info"]
+        data_decoded["client_peer_info"] = data_decoded["client_peer_info"]
+        data_decoded["delegate_account"] = data_decoded["delegate_account"]
         data_decoded["classification"] = data_decoded["classification"]
         data_decoded["delegate_reward_rate"] = data_decoded["delegate_reward_rate"]
         data_decoded["last_delegate_reward_rate_update"] = data_decoded["last_delegate_reward_rate_update"]
@@ -1035,14 +1075,11 @@ class SubnetNode:
     def _get_null() -> "SubnetNode":
         subnet_node = SubnetNode(
             id=0,
-            hotkey="000000000000000000000000000000000000000000000000",
-            # peer_id=PeerID.from_base58("000000000000000000000000000000000000000000000000"),
-            # bootnode_peer_id=PeerID.from_base58("000000000000000000000000000000000000000000000000"),
-            # client_peer_id=PeerID.from_base58("000000000000000000000000000000000000000000000000"),
-            peer_id="000000000000000000000000000000000000000000000000",
-            bootnode_peer_id="000000000000000000000000000000000000000000000000",
-            client_peer_id="000000000000000000000000000000000000000000000000",
-            bootnode="",
+            hotkey="0x0000000000000000000000000000000000000000",
+            peer_info=PeerInfo(peer_id="000000000000000000000000000000000000000000000000", multiaddr=""),
+            bootnode_peer_info=None,
+            client_peer_info=None,
+            delegate_account=None,
             classification="",
             delegate_reward_rate=0,
             last_delegate_reward_rate_update=0,
@@ -1311,7 +1348,7 @@ class AllSubnetBootnodes:
         return cls(**data_decoded)
 
     @classmethod
-    def from_vec_u8(cls, vec_u8: List[int]) -> Optional["AllSubnetBootnodes"]:
+    def from_vec_u8(cls, vec_u8: List[int]) -> "AllSubnetBootnodes":
         """Returns a AllSubnetBootnodes object from a ``vec_u8``."""
         if len(vec_u8) == 0:
             return AllSubnetBootnodes._get_null()
@@ -1379,7 +1416,7 @@ class SubnetNodeStakeInfo:
         return cls(**data_decoded)
 
     @classmethod
-    def from_vec_u8(cls, vec_u8: List[int]) -> Optional["SubnetNodeStakeInfo"]:
+    def from_vec_u8(cls, vec_u8: List[int]) -> "SubnetNodeStakeInfo":
         """Returns a SubnetNodeStakeInfo object from a ``vec_u8``."""
         if len(vec_u8) == 0:
             return SubnetNodeStakeInfo._get_null()
@@ -1424,7 +1461,7 @@ class SubnetNodeStakeInfo:
         data = SubnetNodeStakeInfo(
             subnet_id=0,
             subnet_node_id=0,
-            hotkey="000000000000000000000000000000000000000000000000",
+            hotkey="0x0000000000000000000000000000000000000000",
             balance=0,
         )
         return data
@@ -1446,7 +1483,7 @@ class DelegateStakeInfo:
         return cls(**data_decoded)
 
     @classmethod
-    def from_vec_u8(cls, vec_u8: List[int]) -> Optional["DelegateStakeInfo"]:
+    def from_vec_u8(cls, vec_u8: List[int]) -> "DelegateStakeInfo":
         """Returns a DelegateStakeInfo object from a ``vec_u8``."""
         if len(vec_u8) == 0:
             return DelegateStakeInfo._get_null()
@@ -1509,7 +1546,7 @@ class NodeDelegateStakeInfo:
         return cls(**data_decoded)
 
     @classmethod
-    def from_vec_u8(cls, vec_u8: List[int]) -> Optional["NodeDelegateStakeInfo"]:
+    def from_vec_u8(cls, vec_u8: List[int]) -> "NodeDelegateStakeInfo":
         """Returns a NodeDelegateStakeInfo object from a ``vec_u8``."""
         if len(vec_u8) == 0:
             return NodeDelegateStakeInfo._get_null()
@@ -1625,8 +1662,8 @@ class OverwatchNodeInfo:
     def _get_null() -> "OverwatchNodeInfo":
         overwatch_node_info = OverwatchNodeInfo(
             overwatch_node_id=0,
-            coldkey="000000000000000000000000000000000000000000000000",
-            hotkey="000000000000000000000000000000000000000000000000",
+            coldkey="0x0000000000000000000000000000000000000000",
+            hotkey="0x0000000000000000000000000000000000000000",
             peer_ids=list(),
             reputation=dict(),
             account_overwatch_stake=0,

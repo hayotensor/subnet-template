@@ -6,6 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
+from subnet.hypertensor.helpers import multiaddr_to_bytes
 
 load_dotenv(os.path.join(Path.cwd(), ".env"))
 
@@ -40,7 +41,6 @@ python -m subnet.cli.hypertensor.subnet.register \
 --initial_coldkey 0x798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc 1 \
 --initial_coldkey 0x773539d4Ac0e786233D90A233654ccEE26a613D9 1 \
 --initial_coldkey 0xFf64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB 1 \
---key_types "Rsa" \
 --bootnode 12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --private_key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
 --local_rpc
@@ -59,7 +59,6 @@ register_subnet \
 --initial_coldkey 0x798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc 1 \
 --initial_coldkey 0x773539d4Ac0e786233D90A233654ccEE26a613D9 1 \
 --initial_coldkey 0xFf64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB 1 \
---key_types "Rsa" \
 --bootnode 12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --private_key "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133" \
 --local_rpc
@@ -86,7 +85,6 @@ def main():
         help="Specify a coldkey and count pair",
         required=True
     )
-    parser.add_argument("--key_types", type=str, nargs='+', required=True, help="Key type of subnet signature system")
     parser.add_argument(
         "--bootnode",
         action="append",
@@ -132,8 +130,7 @@ def main():
     initial_coldkeys = sorted(set(initial_coldkeys), key=lambda x: int(x[0], 16))
 
     assert len(initial_coldkeys) >= 3, "At least 3 initial coldkeys must be provided, See MinSubnetNodes in the Hypertensor Network pallet"
-    key_types = args.key_types
-    bootnodes = [(peer_id, multiaddr) for peer_id, multiaddr in args.bootnode]
+    bootnodes = [(peer_id, multiaddr_to_bytes(multiaddr)) for peer_id, multiaddr in args.bootnode]
 
     try:
         receipt = hypertensor.register_subnet(
@@ -146,7 +143,6 @@ def main():
             max_stake,
             delegate_stake_percentage,
             initial_coldkeys,
-            key_types,
             bootnodes,
         )
         if receipt.is_success:

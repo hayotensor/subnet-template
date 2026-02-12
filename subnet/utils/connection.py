@@ -11,7 +11,10 @@ from libp2p.pubsub.pubsub import Pubsub
 import trio
 
 from subnet.config import GOSSIPSUB_PROTOCOL_ID
-from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
+
+# from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
+from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
+
 
 logger = logging.getLogger("subnet.utils.connection")
 

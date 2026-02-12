@@ -31,20 +31,12 @@ def main():
     #     default="client_private_key.key",
     #     help="File location of bootstrap private key. ",
     # )
-    # parser.add_argument(
-    #     "--key_type",
-    #     type=str,
-    #     required=False,
-    #     default="ed25519",
-    #     help="Key type used in subnet. ed25519, rsa",
-    # )
 
     args = parser.parse_args()
 
     path = args.path
     # bootstrap_path = args.bootstrap_path
     # client_path = args.client_path
-    # key_type = args.key_type.lower()
 
     key_pair = create_new_ed25519_key_pair(secrets.token_bytes(32))
 
