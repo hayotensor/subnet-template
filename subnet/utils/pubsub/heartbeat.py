@@ -29,7 +29,6 @@ class HeartbeatData(BaseModel):
     subnet_node_id: int
 
     def model_post_init(self, __context: Any) -> None:
-        assert self.epoch > 0, "Epoch must be greater than 0"
         assert self.subnet_id > 0, "Subnet ID must be greater than 0"
         assert self.subnet_node_id > 0, "Subnet node ID must be greater than 0"
 

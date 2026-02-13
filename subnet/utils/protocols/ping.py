@@ -74,7 +74,7 @@ class PingProtocol:
     async def ping(self, peer_id: PeerID, close_stream: bool = True) -> bool:
         try:
             logger.info(f"ping, Pinging peer ID {peer_id}")
-            if self.dht:
+            if self.dht and not self.dht.enable_random_walk:
                 try:
                     peer_info = await self.dht.find_peer(peer_id)
                     if peer_info is None:

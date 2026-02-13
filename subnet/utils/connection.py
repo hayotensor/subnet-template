@@ -11,10 +11,7 @@ from libp2p.pubsub.pubsub import Pubsub
 import trio
 
 from subnet.config import GOSSIPSUB_PROTOCOL_ID
-
-# from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
 from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
-
 
 logger = logging.getLogger("subnet.utils.connection")
 
@@ -53,14 +50,16 @@ async def maintain_connections(
 
     while True:
         try:
+            # Get all peers that are expected to be in the network
             onchain_peer_ids = await subnet_info_tracker.get_all_peer_ids(force=True)
-            # logger.info(f"All peer IDs: {onchain_peer_ids}")
+            logger.debug(f"All peer IDs: {onchain_peer_ids}")
 
+            # Get all peers that are currently connected to the host
             connected_peers = host.get_connected_peers()
             list_peers = host.get_peerstore().peers_with_addrs()
+            logger.debug(f"Connected peers: {connected_peers}")
 
-            # logger.info(f"Connected peers: {connected_peers}")
-
+            # Get all peers that are in the DHT
             if dht:
                 peerstore_peer_ids = dht.host.get_peerstore().peer_ids()
                 logger.debug(f"Peerstore peer IDs: {peerstore_peer_ids}")
@@ -111,11 +110,6 @@ async def maintain_connections(
                 for peer_id in list_peers:
                     try:
                         peer_info = host.get_peerstore().peer_info(peer_id)
-                        # if (
-                        #     filter_compatible_peer_info(peer_info)
-                        #     and trio.current_time() - recent_connection_attempts.get(peer_id, 0)
-                        #     > connection_backoff_duration
-                        # ):
                         if filter_compatible_peer_info(peer_info) and trio.current_time() >= peer_next_retry.get(
                             peer_id, 0
                         ):
@@ -139,7 +133,9 @@ async def maintain_connections(
                                     next_retry_time = max_backoff_duration
                                 peer_next_retry[peer_id] = next_retry_time
 
-                                if dht:
+                                if dht and not dht.enable_random_walk:
+                                    # Only call if random walk is disabled
+                                    # Otherwise `find_peer` compete for the same resources
                                     with trio.move_on_after(5):
                                         peer_info = await dht.find_peer(peer_id)
                                         if not peer_info:

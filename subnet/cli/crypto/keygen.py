@@ -17,26 +17,10 @@ def main():
         default="private_key.key",
         help="File location of private key. ",
     )
-    # parser.add_argument(
-    #     "--bootstrap_path",
-    #     type=str,
-    #     required=False,
-    #     default="bootstrap_private_key.key",
-    #     help="File location of bootstrap private key. ",
-    # )
-    # parser.add_argument(
-    #     "--client_path",
-    #     type=str,
-    #     required=False,
-    #     default="client_private_key.key",
-    #     help="File location of bootstrap private key. ",
-    # )
 
     args = parser.parse_args()
 
     path = args.path
-    # bootstrap_path = args.bootstrap_path
-    # client_path = args.client_path
 
     key_pair = create_new_ed25519_key_pair(secrets.token_bytes(32))
 
