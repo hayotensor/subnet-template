@@ -58,6 +58,10 @@ async def maintain_connections(
             connected_peers = host.get_connected_peers()
             logger.info(f"Host connected peers: {connected_peers}")
 
+            # READ INFO
+            transport_addrs = host.get_transport_addrs()
+            logger.info(f"Host transport addrs: {transport_addrs}")
+
             list_peers = host.get_peerstore().peers_with_addrs()
 
             # Get all peers that are in the DHT
