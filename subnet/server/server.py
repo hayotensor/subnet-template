@@ -16,6 +16,7 @@ from libp2p.network.swarm import Swarm
 from libp2p.peer.persistent import create_async_peerstore, create_sync_peerstore, create_sync_rocksdb_peerstore
 from libp2p.pubsub.gossipsub import GossipSub
 from libp2p.pubsub.pubsub import Pubsub
+from libp2p.rcmgr.manager import ResourceManager
 from libp2p.records.pubkey import PublicKeyValidator
 from libp2p.records.validator import NamespacedValidator
 from libp2p.security.noise.transport import (
@@ -89,6 +90,14 @@ class Server:
         subnet_node_id: int = 0,
         hypertensor: Hypertensor | LocalMockHypertensor,
         is_bootstrap: bool = False,
+        enable_pubsub_validator: bool = True,
+        enable_consensus: bool = True,
+        # Host specific arguments
+        enable_mDNS: bool = False,
+        enable_upnp: bool = False,
+        enable_autotls: bool = False,
+        resource_manager: ResourceManager | None = None,
+        psk: str | None = None,
         **kwargs,
     ):
         logger.info(f"Server starting subnet_id={subnet_id}")
@@ -102,6 +111,13 @@ class Server:
         self.hypertensor = hypertensor
         self.db = db
         self.is_bootstrap = is_bootstrap
+        self.enable_pubsub_validator = enable_pubsub_validator
+        self.enable_consensus = enable_consensus
+        self.enable_mDNS = enable_mDNS
+        self.enable_upnp = enable_upnp
+        self.enable_autotls = enable_autotls
+        self.resource_manager = resource_manager
+        self.psk = psk
         self.peerstore_db_path = peerstore_db_path
 
     async def run(self):
@@ -158,12 +174,16 @@ class Server:
             peerstore = None
 
         # Create a new libp2p host
-        # host = new_host(key_pair=self.key_pair, listen_addrs=listen_addrs)
         host = new_host(
             key_pair=self.key_pair,
             listen_addrs=listen_addrs,
             sec_opt=secure_transports_by_protocol,
             peerstore_opt=peerstore,
+            enable_upnp=self.enable_upnp,
+            enable_mDNS=self.enable_mDNS,
+            enable_autotls=self.enable_autotls,
+            resource_manager=self.resource_manager,
+            psk=self.psk,
         )
 
         # Increase connection limits to prevent aggressive pruning (EOF/0-byte reads)
@@ -226,18 +246,19 @@ class Server:
                         await pubsub.wait_until_ready()
                         logger.info("Pubsub ready.")
 
-                        pubsub.set_topic_validator(
-                            HEARTBEAT_TOPIC,
-                            SyncPubsubTopicValidator.from_predicate_class(
-                                SyncHeartbeatMsgValidator,
-                                host.get_id(),
-                                subnet_info_tracker,
-                                self.hypertensor,
-                                self.subnet_id,
-                                proof_of_stake,
-                            ).validate,
-                            is_async_validator=False,
-                        )
+                        if self.enable_pubsub_validator:
+                            pubsub.set_topic_validator(
+                                HEARTBEAT_TOPIC,
+                                SyncPubsubTopicValidator.from_predicate_class(
+                                    SyncHeartbeatMsgValidator,
+                                    host.get_id(),
+                                    subnet_info_tracker,
+                                    self.hypertensor,
+                                    self.subnet_id,
+                                    proof_of_stake,
+                                ).validate,
+                                is_async_validator=False,
+                            )
 
                         # Connect to bootstrap nodes AFTER starting services
                         # This avoids AttributeError on incoming streams
@@ -287,17 +308,18 @@ class Server:
                                 self.hypertensor,
                             )
 
-                            # Start consensus
-                            consensus = Consensus(
-                                db=self.db,
-                                subnet_id=self.subnet_id,
-                                subnet_node_id=self.subnet_node_id,
-                                subnet_info_tracker=subnet_info_tracker,
-                                hypertensor=self.hypertensor,
-                                skip_activate_subnet=False,
-                                start=True,
-                            )
-                            nursery.start_soon(consensus._main_loop)
+                            if self.enable_consensus:
+                                # Start consensus
+                                consensus = Consensus(
+                                    db=self.db,
+                                    subnet_id=self.subnet_id,
+                                    subnet_node_id=self.subnet_node_id,
+                                    subnet_info_tracker=subnet_info_tracker,
+                                    hypertensor=self.hypertensor,
+                                    skip_activate_subnet=False,
+                                    start=True,
+                                )
+                                nursery.start_soon(consensus._main_loop)
 
                         await termination_event.wait()
 

@@ -172,8 +172,6 @@ async def maintain_connections(
                     logger.info(f"Heartbeat number of peers: {len(topic_peers)}")
                     for peer_id in topic_peers:
                         logger.info(f"Heartbeat mesh peer: {peer_id}")
-
-                logger.info(f"GossipSub fanout: {gossipsub.fanout}")
                 ###
 
                 compatible_peers = []

@@ -222,6 +222,29 @@ python -m subnet.cli.run_node \
         help="[Currently not in use] Specify persistent peerstore db path",
     )
 
+    # Host specific arguments
+    parser.add_argument(
+        "--enable_mDNS",
+        action="store_true",
+        help="Enable mDNS discovery",
+    )
+    parser.add_argument(
+        "--enable_upnp",
+        action="store_true",
+        help="Enable UPnP discovery",
+    )
+    parser.add_argument(
+        "--enable_autotls",
+        action="store_true",
+        help="Enable AutoTLS",
+    )
+    parser.add_argument(
+        "--psk",
+        type=str,
+        default=None,
+        help="Pre-shared key for libp2p",
+    )
+
     parser.add_argument(
         "--private_key_path",
         type=str,
@@ -441,6 +464,11 @@ def main() -> None:
             subnet_node_id=args.subnet_node_id,
             hypertensor=hypertensor,
             is_bootstrap=args.is_bootstrap,
+            enable_mDNS=args.enable_mDNS,
+            enable_upnp=args.enable_upnp,
+            enable_autotls=args.enable_autotls,
+            resource_manager=None,  # TODO: Libp2p resource manager needs work to be implemented
+            psk=args.psk,
         )
         trio.run(server.run)
     except KeyboardInterrupt:
