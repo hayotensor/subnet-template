@@ -34,6 +34,7 @@ from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.utils.addresses import get_public_ip_interfaces
 from subnet.utils.connection import (
+    basic_maintain_connections,
     demonstrate_random_walk_discovery,
     maintain_connections,
 )
@@ -92,6 +93,8 @@ class Server:
         is_bootstrap: bool = False,
         enable_pubsub_validator: bool = True,
         enable_consensus: bool = True,
+        enable_proof_of_stake: bool = True,
+        strict_maintain_connections: bool = True,
         # Host specific arguments
         enable_mDNS: bool = False,
         enable_upnp: bool = False,
@@ -113,6 +116,9 @@ class Server:
         self.is_bootstrap = is_bootstrap
         self.enable_pubsub_validator = enable_pubsub_validator
         self.enable_consensus = enable_consensus
+        self.enable_proof_of_stake = enable_proof_of_stake
+        self.strict_maintain_connections = strict_maintain_connections
+        # Host specific arguments
         self.enable_mDNS = enable_mDNS
         self.enable_upnp = enable_upnp
         self.enable_autotls = enable_autotls
@@ -132,33 +138,37 @@ class Server:
         else:
             listen_addrs = get_available_interfaces(self.port)
 
-        proof_of_stake = ProofOfStake(
-            subnet_id=self.subnet_id,
-            hypertensor=self.hypertensor,
-            min_class=0,
-        )
+        proof_of_stake = None
+        if self.enable_proof_of_stake:
+            proof_of_stake = ProofOfStake(
+                subnet_id=self.subnet_id,
+                hypertensor=self.hypertensor,
+                min_class=0,
+            )
 
-        pos_noise_transport = POSTransport(
-            transport=NoiseTransport(
-                self.key_pair,
-                noise_privkey=create_new_x25519_key_pair().private_key,
-            ),
-            pos=proof_of_stake,
-            log_level=logging.INFO if self.is_bootstrap else logging.DEBUG,
-        )
+            pos_noise_transport = POSTransport(
+                transport=NoiseTransport(
+                    self.key_pair,
+                    noise_privkey=create_new_x25519_key_pair().private_key,
+                ),
+                pos=proof_of_stake,
+                log_level=logging.INFO if self.is_bootstrap else logging.DEBUG,
+            )
 
-        pos_secio_transport = POSTransport(
-            transport=SecioTransport(
-                self.key_pair,
-            ),
-            pos=proof_of_stake,
-            log_level=logging.INFO if self.is_bootstrap else logging.DEBUG,
-        )
+            pos_secio_transport = POSTransport(
+                transport=SecioTransport(
+                    self.key_pair,
+                ),
+                pos=proof_of_stake,
+                log_level=logging.INFO if self.is_bootstrap else logging.DEBUG,
+            )
 
-        secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
-            POS_PROTOCOL_ID: pos_noise_transport,
-            TProtocol(secio.ID): pos_secio_transport,
-        }
+            secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
+                POS_PROTOCOL_ID: pos_noise_transport,
+                TProtocol(secio.ID): pos_secio_transport,
+            }
+        else:
+            secure_transports_by_protocol = None  # Use default transports
 
         if self.peerstore_db_path is not None:
             # peerstore = create_async_peerstore(
@@ -279,21 +289,26 @@ class Server:
                             termination_event=termination_event,
                             db=self.db,
                             topics=[HEARTBEAT_TOPIC],
-                            subnet_info_tracker=subnet_info_tracker,
-                            hypertensor=self.hypertensor,
                         )
                         nursery.start_soon(gossip_receiver.run)
 
                         # Keep nodes connected to each other
                         # NOTE: Start this after host, gossipsub, and pubsub are initialized
-                        nursery.start_soon(
-                            maintain_connections,
-                            host,
-                            subnet_info_tracker,
-                            gossipsub,
-                            pubsub,
-                            dht,
-                        )
+                        if self.strict_maintain_connections:
+                            nursery.start_soon(
+                                maintain_connections,
+                                host,
+                                subnet_info_tracker,
+                                gossipsub,
+                                pubsub,
+                                dht,
+                            )
+                        else:
+                            # Start basic connection maintenance
+                            nursery.start_soon(
+                                basic_maintain_connections,
+                                host,
+                            )
 
                         if not self.is_bootstrap:
                             # Start heartbeat publisher
@@ -304,7 +319,6 @@ class Server:
                                 termination_event,
                                 self.subnet_id,
                                 self.subnet_node_id,
-                                subnet_info_tracker,
                                 self.hypertensor,
                             )
 

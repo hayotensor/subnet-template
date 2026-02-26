@@ -1,5 +1,4 @@
 import logging
-import time
 from typing import Dict, Optional
 
 from libp2p.peer.id import ID as PeerID
@@ -12,7 +11,6 @@ from subnet.hypertensor.chain_functions import (
     SubnetNodeClass,
     subnet_node_class_to_enum,
 )
-from subnet.hypertensor.config import BLOCK_SECS
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 
 logging.basicConfig(

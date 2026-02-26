@@ -149,7 +149,6 @@ async def publish_loop(
     termination_event: trio.Event,
     subnet_id: int,
     subnet_node_id: int,
-    subnet_info_tracker: SubnetInfoTracker,
     hypertensor: LocalMockHypertensor | Hypertensor,
 ):
     """Continuously publish heartbeats at regular intervals within each epoch."""
@@ -163,11 +162,11 @@ async def publish_loop(
 
     while not termination_event.is_set():
         try:
-            epoch_length = subnet_info_tracker.get_epoch_length()
+            epoch_length = hypertensor.get_epoch_length()
             if epoch_length is None:
                 epoch_length = 20
 
-            current_epoch = hypertensor.get_subnet_epoch_data(subnet_info_tracker.get_subnet_slot()).epoch
+            current_epoch = hypertensor.get_subnet_epoch_data(hypertensor.get_subnet_slot(subnet_id)).epoch
 
             # Detect epoch change
             if current_epoch != last_epoch:

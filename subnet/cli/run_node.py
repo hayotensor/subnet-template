@@ -222,6 +222,30 @@ python -m subnet.cli.run_node \
         help="[Currently not in use] Specify persistent peerstore db path",
     )
 
+    parser.add_argument(
+        "--disable_pubsub_validator",
+        action="store_true",
+        help="Disable pubsub validator",
+    )
+
+    parser.add_argument(
+        "--disable_consensus",
+        action="store_true",
+        help="Disable consensus",
+    )
+
+    parser.add_argument(
+        "--disable_proof_of_stake",
+        action="store_true",
+        help="Disable proof of stake",
+    )
+
+    parser.add_argument(
+        "--disable_strict_maintain_connections",
+        action="store_true",
+        help="Disable strictly maintain connections",
+    )
+
     # Host specific arguments
     parser.add_argument(
         "--enable_mDNS",
@@ -262,6 +286,11 @@ python -m subnet.cli.run_node \
     )
 
     parser.add_argument("--no_blockchain_rpc", action="store_true", help="[Testing] Run with no RPC")
+
+    # Seed data for local db when using `--no_blockchain_rpc`
+    parser.add_argument(
+        "--insert_mock_overwatch_node", action="store_true", help="[Testing] Insert mock overwatch node"
+    )
 
     parser.add_argument(
         "--local_rpc",
@@ -420,7 +449,7 @@ def main() -> None:
             bootnode_peer_id="",
             client_peer_id="",
             reset_db=True if not args.bootstrap else False,
-            insert_mock_overwatch_node=True if not args.bootstrap else False,
+            insert_mock_overwatch_node=True if not args.bootstrap and args.insert_mock_overwatch_node else False,
         )
 
     slot = hypertensor.get_subnet_slot(args.subnet_id)
@@ -464,6 +493,10 @@ def main() -> None:
             subnet_node_id=args.subnet_node_id,
             hypertensor=hypertensor,
             is_bootstrap=args.is_bootstrap,
+            enable_pubsub_validator=not args.disable_pubsub_validator,
+            enable_consensus=not args.disable_consensus,
+            enable_proof_of_stake=not args.disable_proof_of_stake,
+            strict_maintain_connections=not args.disable_strict_maintain_connections,
             enable_mDNS=args.enable_mDNS,
             enable_upnp=args.enable_upnp,
             enable_autotls=args.enable_autotls,

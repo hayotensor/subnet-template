@@ -69,6 +69,7 @@ class LocalMockHypertensor:
 
         if insert_mock_subnet_nodes[0]:
             # Insert mock bootnodes
+            logger.info("Inserting mock subnet nodes")
             try:
                 bootnode_peer_id = get_peer_id("bootnode.key")
                 self.db.insert_bootnode(

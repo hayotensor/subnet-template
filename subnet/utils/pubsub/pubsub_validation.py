@@ -123,7 +123,7 @@ class AsyncHeartbeatMsgValidator:
         subnet_info_tracker: SubnetInfoTracker,
         hypertensor: LocalMockHypertensor | Hypertensor,
         subnet_id: int,
-        proof_of_stake: ProofOfStake,
+        proof_of_stake: ProofOfStake | None = None,
     ):
         self.my_peer_id = my_peer_id
         self.subnet_info_tracker = subnet_info_tracker
@@ -164,7 +164,9 @@ class AsyncHeartbeatMsgValidator:
                 return False
 
             # Verify epoch
-            current_epoch = self.hypertensor.get_subnet_epoch_data(self.subnet_info_tracker.get_subnet_slot()).epoch
+            current_epoch = self.hypertensor.get_subnet_epoch_data(
+                self.hypertensor.get_subnet_slot(self.subnet_id)
+            ).epoch
             same_epoch = heartbeat_data.epoch == current_epoch
             if not same_epoch:
                 logger.debug(
@@ -173,12 +175,13 @@ class AsyncHeartbeatMsgValidator:
                 return False
 
             # Verify proof of stake
-            pos = self.proof_of_stake.proof_of_stake(from_peer_id)
-            if not pos:
-                logger.debug(
-                    f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat {heartbeat_data}, proof of stake: {pos}"  # noqa: E501
-                )
-                return False
+            if self.proof_of_stake is not None:
+                pos = self.proof_of_stake.proof_of_stake(from_peer_id)
+                if not pos:
+                    logger.debug(
+                        f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat {heartbeat_data}, proof of stake: {pos}"  # noqa: E501
+                    )
+                    return False
 
             return True
         except Exception as e:
@@ -199,7 +202,7 @@ class SyncHeartbeatMsgValidator:
         subnet_info_tracker: SubnetInfoTracker,
         hypertensor: LocalMockHypertensor | Hypertensor,
         subnet_id: int,
-        proof_of_stake: ProofOfStake,
+        proof_of_stake: ProofOfStake | None = None,
     ):
         self.my_peer_id = my_peer_id
         self.subnet_info_tracker = subnet_info_tracker
@@ -264,10 +267,11 @@ class SyncHeartbeatMsgValidator:
             self._seen_heartbeats.add(key)
 
             # Verify proof of stake
-            pos = self.proof_of_stake.proof_of_stake(from_peer_id)
-            if not pos:
-                logger.info(f"Heartbeat validation, from_peer_id {from_peer_id}, proof of stake: {pos}")
-                return False
+            if self.proof_of_stake is not None:
+                pos = self.proof_of_stake.proof_of_stake(from_peer_id)
+                if not pos:
+                    logger.info(f"Heartbeat validation, from_peer_id {from_peer_id}, proof of stake: {pos}")
+                    return False
 
             return True
         except Exception as e:

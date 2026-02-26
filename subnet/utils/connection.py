@@ -40,9 +40,6 @@ async def maintain_connections(
 ) -> None:
     """Maintain connections to ensure the host remains connected to healthy peers."""
     my_peer_id = host.get_id()
-    # Track recent connection attempts to prevent thrashing
-    # recent_connection_attempts: dict[PeerID, float] = {}
-    # next_connection_attempts: dict[PeerID, float] = {}
 
     # Track retries for each peer, and next retry time
     peer_retries: dict[PeerID, int] = {}
@@ -80,8 +77,6 @@ async def maintain_connections(
                 if peer_id not in onchain_peer_ids and not peer_id.__eq__(my_peer_id):
                     remove_peers.append(peer_id)
                     connected_peers.remove(peer_id)
-                    # recent_connection_attempts.pop(peer_id, None)
-                    # next_connection_attempts.pop(peer_id, None)
                     peer_retries.pop(peer_id, None)
                     peer_next_retry.pop(peer_id, None)
 
@@ -90,8 +85,6 @@ async def maintain_connections(
                 if peer_id not in onchain_peer_ids and not peer_id.__eq__(my_peer_id):
                     remove_peers.append(peer_id)
                     list_peers.remove(peer_id)
-                    # recent_connection_attempts.pop(peer_id, None)
-                    # next_connection_attempts.pop(peer_id, None)
                     peer_retries.pop(peer_id, None)
                     peer_next_retry.pop(peer_id, None)
 
@@ -129,7 +122,6 @@ async def maintain_connections(
                     for peer_id in random_peers:
                         if peer_id not in connected_peers and peer_id in onchain_peer_ids:
                             try:
-                                # recent_connection_attempts[peer_id] = trio.current_time()
                                 peer_retries[peer_id] = peer_retries.get(peer_id, 0) + 1
                                 next_retry_time = trio.current_time() + connection_backoff_duration * (
                                     peer_retries.get(peer_id, 0) ** retry_multiplier
@@ -326,3 +318,52 @@ async def demonstrate_random_walk_discovery(dht: KadDHT, interval: int = 30) -> 
                 logger.info(f"  {peer_id}")
 
         await trio.sleep(interval)
+
+
+async def basic_maintain_connections(host: IHost) -> None:
+    """Maintain connections to ensure the host remains connected to healthy peers."""
+    while True:
+        try:
+            connected_peers = host.get_connected_peers()
+            list_peers = host.get_peerstore().peers_with_addrs()
+
+            logger.info(f"Connected peers: {connected_peers}")
+            logger.info(f"List peers:      {list_peers}")
+
+            all_peers = list(set(connected_peers + list_peers))
+            for peer_id in all_peers:
+                try:
+                    peer_info = host.get_peerstore().peer_info(peer_id)
+                    logger.info(f"Peer info addresses {peer_id}: {peer_info.addrs} \n\n")
+                except Exception as e:
+                    logger.debug(f"Failed to get peer info for {peer_id}: {e}", exc_info=True)
+
+            if len(connected_peers) < 20:
+                logger.debug("Reconnecting to maintain peer connections...")
+
+                # Find compatible peers
+                compatible_peers = []
+                for peer_id in list_peers:
+                    try:
+                        peer_info = host.get_peerstore().peer_info(peer_id)
+                        if filter_compatible_peer_info(peer_info):
+                            compatible_peers.append(peer_id)
+                    except Exception:
+                        continue
+
+                # Connect to random subset of compatible peers
+                if compatible_peers:
+                    random_peers = random.sample(compatible_peers, min(50, len(compatible_peers)))
+                    for peer_id in random_peers:
+                        if peer_id not in connected_peers:
+                            try:
+                                with trio.move_on_after(5):
+                                    peer_info = host.get_peerstore().peer_info(peer_id)
+                                    await host.connect(peer_info)
+                                    logger.debug(f"Connected to peer: {peer_id}")
+                            except Exception as e:
+                                logger.debug(f"Failed to connect to {peer_id}: {e}")
+
+            await trio.sleep(15)
+        except Exception as e:
+            logger.error(f"Error maintaining connections: {e}")
