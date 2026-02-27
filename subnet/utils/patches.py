@@ -17,6 +17,7 @@ from libp2p.abc import (
 from libp2p.crypto.serialization import (
     deserialize_public_key,
 )
+from libp2p.host.basic_host import BasicHost
 import libp2p.identity.identify_push.identify_push as identify_push
 from libp2p.network.stream.exceptions import StreamReset
 from libp2p.peer.envelope import consume_envelope
@@ -173,9 +174,43 @@ def patch__update_peerstore_from_identify():
     identify_push._update_peerstore_from_identify = _safe_update_peerstore_from_identify
 
 
+def patch_on_notifee_connected():
+    async def _safe_on_notifee_connected(self, conn) -> None:
+        print("on_notifee_connected")
+        peer_id = getattr(conn.muxed_conn, "peer_id", None)
+        if peer_id is None:
+            return
+        print("on_notifee_connected peer_id", peer_id)
+        muxed_conn = getattr(conn, "muxed_conn", None)
+        is_initiator = False
+        if muxed_conn is not None and hasattr(muxed_conn, "is_initiator"):
+            try:
+                is_initiator = bool(muxed_conn.is_initiator())
+            except Exception:
+                is_initiator = False
+        print("on_notifee_connected is_initiator", is_initiator)
+        if not is_initiator:
+            # Only the dialer (initiator) needs to actively run identify.
+            return
+        if not self._is_quic_muxer(muxed_conn):
+            return
+
+        print("on_notifee_connected event_started")
+        event_started = getattr(conn, "event_started", None)
+        if event_started is not None and not event_started.is_set():
+            try:
+                await event_started.wait()
+            except Exception:
+                return
+        self._schedule_identify(peer_id, reason="notifee-connected")
+
+    BasicHost._on_notifee_connected = _safe_on_notifee_connected
+
+
 def apply_all_patches():
     """Apply all libp2p stability patches."""
     patch_get_in_topic_gossipsub_peers_from_minus()
     patch_write_msg()
     patch_maybe_delete_peer_record()
     patch__update_peerstore_from_identify()
+    patch_on_notifee_connected()
