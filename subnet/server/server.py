@@ -26,6 +26,7 @@ from libp2p.security.noise.transport import (
 import libp2p.security.secio.transport as secio
 from libp2p.security.secio.transport import Transport as SecioTransport
 from libp2p.tools.async_service import background_trio_service
+from libp2p.transport.quic.config import QUICTransportConfig
 import trio
 
 from subnet.config import GOSSIPSUB_PROTOCOL_ID
@@ -138,6 +139,8 @@ class Server:
         else:
             listen_addrs = get_available_interfaces(self.port)
 
+        logger.info(f"Initial listen addrs: {listen_addrs}")
+
         proof_of_stake = None
         if self.enable_proof_of_stake:
             proof_of_stake = ProofOfStake(
@@ -192,9 +195,19 @@ class Server:
             enable_upnp=self.enable_upnp,
             enable_mDNS=self.enable_mDNS,
             enable_autotls=self.enable_autotls,
+            # enable_quic=True,
+            # quic_transport_opt=QUICTransportConfig(),
             resource_manager=self.resource_manager,
             psk=self.psk,
         )
+
+        # listen_addrs = host._network.get_listen_addrs()
+
+        host_listen_addrs = host.get_addrs()
+        logger.info(f"Host listen addrs: {host_listen_addrs}")
+
+        transport_addrs = host.get_transport_addrs()
+        logger.info(f"Host transport addrs: {transport_addrs}")
 
         # Increase connection limits to prevent aggressive pruning (EOF/0-byte reads)
         # This is done manually because new_host() only exposes this via QUIC config.
@@ -210,6 +223,13 @@ class Server:
         termination_event = trio.Event()  # Event to signal termination
         async with host.run(listen_addrs=listen_addrs), trio.open_nursery() as nursery:
             logger.info(f"Listening address: {listen_addrs}")
+
+            host_listen_addrs = host.get_addrs()
+            logger.info(f"Host listen addrs: {host_listen_addrs}")
+
+            transport_addrs = host.get_transport_addrs()
+            logger.info(f"Host transport addrs: {transport_addrs}")
+
             # Start the peer-store cleanup task, TTL
             nursery.start_soon(host.get_peerstore().start_cleanup_task, 60)
 
