@@ -10,25 +10,14 @@ import logging
 from typing import List
 
 from libp2p.abc import (
-    IHost,
     INetStream,
-    IPeerStore,
 )
-from libp2p.crypto.serialization import (
-    deserialize_public_key,
-)
-from libp2p.host.basic_host import BasicHost
-import libp2p.identity.identify_push.identify_push as identify_push
 from libp2p.network.stream.exceptions import StreamReset
-from libp2p.peer.envelope import consume_envelope
 from libp2p.peer.id import ID
 from libp2p.peer.peerstore import PeerStore
 from libp2p.pubsub.exceptions import NoPubsubAttached
 from libp2p.pubsub.gossipsub import GossipSub
 from libp2p.pubsub.pubsub import Pubsub
-from multiaddr import (
-    Multiaddr,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -106,111 +95,8 @@ def patch_maybe_delete_peer_record():
     PeerStore.maybe_delete_peer_record = safe_maybe_delete_peer_record
 
 
-def patch__update_peerstore_from_identify():
-    async def _safe_update_peerstore_from_identify(peerstore: IPeerStore, peer_id: ID, identify_msg) -> None:
-        """
-        Update the peerstore with information from an identify message.
-
-        This function handles partial updates, where only some fields may be present
-        in the identify message.
-
-        Security: Signed peer records are validated to ensure the peer ID in the
-        record matches the sender's peer ID to prevent peer ID spoofing attacks.
-        """
-        # Update public key if present
-        if identify_msg.HasField("public_key"):
-            try:
-                peerstore.add_protocols(peer_id, [])
-                pubkey = deserialize_public_key(identify_msg.public_key)
-                peerstore.add_pubkey(peer_id, pubkey)
-            except Exception as e:
-                logger.error("Error updating public key for peer %s: %s", peer_id, e)
-
-        # Update listen addresses if present
-        if identify_msg.listen_addrs:
-            try:
-                addrs = [Multiaddr(addr) for addr in identify_msg.listen_addrs]
-                for addr in addrs:
-                    peerstore.add_addr(peer_id, addr, 7200)  # 2 hours TTL
-            except Exception as e:
-                logger.error("Error updating listen addresses for peer %s: %s", peer_id, e)
-
-        # Update protocols if present
-        if identify_msg.protocols:
-            try:
-                peerstore.add_protocols(peer_id, identify_msg.protocols)
-            except Exception as e:
-                logger.error("Error updating protocols for peer %s: %s", peer_id, e)
-
-        # Update from signed peer record if present
-        if identify_msg.HasField("signedPeerRecord"):
-            try:
-                envelope, record = consume_envelope(identify_msg.signedPeerRecord, "libp2p-peer-record")
-                # Cross-check peer-id consistency
-                # Security: Reject signed peer records where the peer ID doesn't match
-                # the sender's peer ID to prevent peer ID spoofing attacks
-                if record.peer_id != peer_id:
-                    logger.warning(
-                        "SignedPeerRecord peer-id mismatch: record=%s, sender=%s. Ignoring.",
-                        record.peer_id,
-                        peer_id,
-                    )
-                    return  # Reject forged record - peer ID mismatch
-
-                if not peerstore.consume_peer_record(envelope, 7200):
-                    logger.error("Updating Certified-Addr-Book was unsuccessful for %s", peer_id)
-            except Exception as e:
-                logger.error("Error updating the certified addr book for peer %s: %s", peer_id, e)
-
-        # Update observed address if present
-        if identify_msg.HasField("observed_addr") and identify_msg.observed_addr:
-            try:
-                print("observed_addr", identify_msg.observed_addr)
-                observed_addr = Multiaddr(identify_msg.observed_addr)
-                peerstore.add_addr(peer_id, observed_addr, 7200)
-            except Exception as e:
-                logger.error("Error updating observed address for peer %s: %s", peer_id, e)
-
-    identify_push._update_peerstore_from_identify = _safe_update_peerstore_from_identify
-
-
-def patch_on_notifee_connected():
-    async def _safe_on_notifee_connected(self, conn) -> None:
-        print("on_notifee_connected")
-        peer_id = getattr(conn.muxed_conn, "peer_id", None)
-        if peer_id is None:
-            return
-        print("on_notifee_connected peer_id", peer_id)
-        muxed_conn = getattr(conn, "muxed_conn", None)
-        is_initiator = False
-        if muxed_conn is not None and hasattr(muxed_conn, "is_initiator"):
-            try:
-                is_initiator = bool(muxed_conn.is_initiator())
-            except Exception:
-                is_initiator = False
-        print("on_notifee_connected is_initiator", is_initiator)
-        if not is_initiator:
-            # Only the dialer (initiator) needs to actively run identify.
-            return
-        if not self._is_quic_muxer(muxed_conn):
-            return
-
-        print("on_notifee_connected event_started")
-        event_started = getattr(conn, "event_started", None)
-        if event_started is not None and not event_started.is_set():
-            try:
-                await event_started.wait()
-            except Exception:
-                return
-        self._schedule_identify(peer_id, reason="notifee-connected")
-
-    BasicHost._on_notifee_connected = _safe_on_notifee_connected
-
-
 def apply_all_patches():
     """Apply all libp2p stability patches."""
-    patch_get_in_topic_gossipsub_peers_from_minus()
-    patch_write_msg()
+    # patch_get_in_topic_gossipsub_peers_from_minus() # Fixed in PR #1116 https://github.com/libp2p/py-libp2p/pull/1116
+    # patch_write_msg() # Fixed in PR #1117 https://github.com/libp2p/py-libp2p/pull/1117
     patch_maybe_delete_peer_record()
-    patch__update_peerstore_from_identify()
-    patch_on_notifee_connected()

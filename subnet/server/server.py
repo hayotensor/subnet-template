@@ -134,10 +134,7 @@ class Server:
             get_optimal_binding_address,
         )
 
-        if self.ip is not None:
-            listen_addrs = get_public_ip_interfaces(self.ip, self.port)
-        else:
-            listen_addrs = get_available_interfaces(self.port)
+        listen_addrs = get_available_interfaces(self.port)
 
         logger.info(f"Initial listen addrs: {listen_addrs}")
 
@@ -200,14 +197,6 @@ class Server:
             resource_manager=self.resource_manager,
             psk=self.psk,
         )
-
-        # listen_addrs = host._network.get_listen_addrs()
-
-        host_listen_addrs = host.get_addrs()
-        logger.info(f"Host listen addrs: {host_listen_addrs}")
-
-        transport_addrs = host.get_transport_addrs()
-        logger.info(f"Host transport addrs: {transport_addrs}")
 
         # Increase connection limits to prevent aggressive pruning (EOF/0-byte reads)
         # This is done manually because new_host() only exposes this via QUIC config.

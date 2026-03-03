@@ -69,6 +69,14 @@ async def maintain_connections(
                     if peer_id not in list_peers:
                         list_peers.append(peer_id)
 
+            all_peers = list(set(connected_peers + list_peers))
+            for peer_id in all_peers:
+                try:
+                    peer_info = host.get_peerstore().peer_info(peer_id)
+                    logger.info(f"Peer info addresses {peer_id}: {peer_info.addrs} \n\n")
+                except Exception as e:
+                    logger.debug(f"Failed to get peer info for {peer_id}: {e}", exc_info=True)
+
             remove_peers = []
 
             # Remove peers that are not in the onchain peer list and are connected
@@ -327,8 +335,8 @@ async def basic_maintain_connections(host: IHost) -> None:
             connected_peers = host.get_connected_peers()
             list_peers = host.get_peerstore().peers_with_addrs()
 
-            logger.info(f"Connected peers: {connected_peers}")
-            logger.info(f"List peers:      {list_peers}")
+            logger.debug(f"Connected peers: {connected_peers}")
+            logger.debug(f"List peers:      {list_peers}")
 
             all_peers = list(set(connected_peers + list_peers))
             for peer_id in all_peers:
