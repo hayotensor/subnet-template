@@ -56,7 +56,7 @@ async def publish_heartbeat_loop(
     log_level: int = logging.INFO,
 ):
     """Continuously publish heartbeats at regular intervals within each epoch."""
-    logger.log(log_level, "Starting publish loop...")
+    logger.log(log_level, "Starting publish heartbeat loop...")
 
     last_epoch = None
     heartbeat_count_in_epoch = 0
@@ -74,7 +74,7 @@ async def publish_heartbeat_loop(
 
             # Detect epoch change
             if current_epoch != last_epoch:
-                logger.log(log_level, f"Epoch changed from {last_epoch} to {current_epoch}")
+                logger.log(log_level, f"Publishing heartbeats for epoch {current_epoch}")
                 last_epoch = current_epoch
                 heartbeat_count_in_epoch = 0
 

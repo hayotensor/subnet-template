@@ -219,12 +219,6 @@ class Server:
         async with host.run(listen_addrs=listen_addrs), trio.open_nursery() as nursery:
             logger.info(f"Listening address: {listen_addrs}")
 
-            host_listen_addrs = host.get_addrs()
-            logger.info(f"Host listen addrs: {host_listen_addrs}")
-
-            transport_addrs = host.get_transport_addrs()
-            logger.info(f"Host transport addrs: {transport_addrs}")
-
             # Start the peer-store cleanup task, TTL
             nursery.start_soon(host.get_peerstore().start_cleanup_task, 60)
 
