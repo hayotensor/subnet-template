@@ -46,113 +46,17 @@ class HeartbeatData(BaseModel):
         return cls.model_validate_json(data)
 
 
-# async def publish_loop(
-#     pubsub: Pubsub,
-#     topic: TProtocol,
-#     termination_event: trio.Event,
-#     subnet_id: int,
-#     subnet_node_id: int,
-#     subnet_info_tracker: SubnetInfoTracker,
-#     hypertensor: LocalMockHypertensor | Hypertensor,
-# ):
-#     """Continuously read input from user and publish to the topic."""
-#     logger.info("Starting publish loop...")
-
-#     await trio.sleep(1)
-
-#     while not termination_event.is_set():
-#         try:
-#             epoch_length = subnet_info_tracker.get_epoch_length()
-#             if epoch_length is None:
-#                 epoch_length = 20
-
-#             current_epoch = hypertensor.get_subnet_epoch_data(subnet_info_tracker.get_subnet_slot()).epoch
-
-#             message = HeartbeatData(epoch=current_epoch, subnet_id=subnet_id, subnet_node_id=subnet_node_id).to_bytes()
-
-#             logger.debug(f"Publishing message: {message}")
-#             await pubsub.publish(topic, message)
-#             logger.debug(f"Published: {message}")
-
-#             await trio.sleep(epoch_length * BLOCK_SECS / (HEARTBEATS_PER_EPOCH + 1))
-#         except Exception as e:
-#             logger.exception(f"Error in publish loop, error={e}")
-#             await trio.sleep(1)  # Avoid tight loop on error
-
-#     # last_epoch = None
-#     # heartbeats_per_epoch = 4
-#     # total_epoch_heartbeats = 0
-
-#     # while not termination_event.is_set():
-#     #     try:
-#     #         # current_epoch = subnet_info_tracker.epoch_data.epoch
-#     #         current_epoch = hypertensor.get_subnet_epoch_data(
-#     #             subnet_info_tracker.get_subnet_slot()
-#     #         ).epoch
-
-#     #         if total_epoch_heartbeats < heartbeats_per_epoch:
-#     #             total_epoch_heartbeats += 1
-#     #             if current_epoch != last_epoch:
-#     #                 total_epoch_heartbeats = 0
-#     #                 last_epoch = current_epoch
-
-#     #             message = HeartbeatData(
-#     #                 current_epoch, subnet_id, subnet_node_id
-#     #             ).to_bytes()
-
-#     #             await pubsub.publish(topic, message)
-#     #             logger.info(f"Published: {message}")
-
-#     #         await trio.sleep(epoch_length * BLOCK_SECS / heartbeats_per_epoch)
-#     #     except Exception:
-#     #         logger.exception("Error in publish loop")
-#     #         await trio.sleep(1)  # Avoid tight loop on error
-
-
-# async def publish_loop(
-#     pubsub: Pubsub,
-#     topic: TProtocol,
-#     termination_event: trio.Event,
-#     subnet_id: int,
-#     subnet_node_id: int,
-#     subnet_info_tracker: SubnetInfoTracker,
-#     hypertensor: LocalMockHypertensor | Hypertensor,
-# ):
-#     """Continuously read input from user and publish to the topic."""
-#     logger.info("Starting publish loop...")
-
-#     await trio.sleep(1)
-
-#     while not termination_event.is_set():
-#         try:
-#             epoch_length = subnet_info_tracker.get_epoch_length()
-#             if epoch_length is None:
-#                 epoch_length = 20
-
-#             current_epoch = hypertensor.get_subnet_epoch_data(subnet_info_tracker.get_subnet_slot()).epoch
-
-#             message = HeartbeatData(epoch=current_epoch, subnet_id=subnet_id, subnet_node_id=subnet_node_id).to_bytes()
-
-#             logger.debug(f"Publishing message: {message}")
-#             await pubsub.publish(topic, message)
-#             logger.debug(f"Published: {message}")
-
-#             await trio.sleep(epoch_length * BLOCK_SECS / (HEARTBEATS_PER_EPOCH + 1))
-#         except Exception as e:
-#             logger.exception(f"Error in publish loop, error={e}")
-#             await trio.sleep(1)  # Avoid tight loop on error
-
-
-async def publish_loop(
+async def publish_heartbeat_loop(
     pubsub: Pubsub,
     topic: TProtocol,
     termination_event: trio.Event,
     subnet_id: int,
     subnet_node_id: int,
     hypertensor: LocalMockHypertensor | Hypertensor,
+    log_level: int = logging.INFO,
 ):
     """Continuously publish heartbeats at regular intervals within each epoch."""
-    logger.info("Starting publish loop...")
+    logger.log(log_level, "Starting publish loop...")
 
     last_epoch = None
     heartbeat_count_in_epoch = 0
@@ -170,7 +74,7 @@ async def publish_loop(
 
             # Detect epoch change
             if current_epoch != last_epoch:
-                logger.debug(f"Epoch changed from {last_epoch} to {current_epoch}")
+                logger.log(log_level, f"Epoch changed from {last_epoch} to {current_epoch}")
                 last_epoch = current_epoch
                 heartbeat_count_in_epoch = 0
 
@@ -180,11 +84,12 @@ async def publish_loop(
                     epoch=current_epoch, subnet_id=subnet_id, subnet_node_id=subnet_node_id
                 ).to_bytes()
 
-                logger.debug(
-                    f"Publishing heartbeat {heartbeat_count_in_epoch + 1}/{HEARTBEATS_PER_EPOCH} for epoch {current_epoch}"
+                logger.log(
+                    log_level,
+                    f"Publishing heartbeat {heartbeat_count_in_epoch + 1}/{HEARTBEATS_PER_EPOCH} for epoch {current_epoch}",
                 )
                 await pubsub.publish(topic, message)
-                logger.debug(f"Published: {message}")
+                logger.log(log_level, f"Published: {message}")
 
                 heartbeat_count_in_epoch += 1
 

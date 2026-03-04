@@ -270,6 +270,25 @@ python -m subnet.cli.run_node \
     )
 
     parser.add_argument(
+        "--heartbeat_validator_log_level",
+        type=int,
+        default=logging.DEBUG,
+        help="Log level for heartbeat validator. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
+    )
+    parser.add_argument(
+        "--gossip_receiver_log_level",
+        type=int,
+        default=logging.DEBUG,
+        help="Log level for gossip receiver. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
+    )
+    parser.add_argument(
+        "--publish_heartbeat_log_level",
+        type=int,
+        default=logging.DEBUG,
+        help="Log level for publish heartbeat. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
+    )
+
+    parser.add_argument(
         "--private_key_path",
         type=str,
         default=None,
@@ -502,6 +521,9 @@ def main() -> None:
             enable_autotls=args.enable_autotls,
             resource_manager=None,  # TODO: Libp2p resource manager needs work to be implemented
             psk=args.psk,
+            heartbeat_validator_log_level=args.heartbeat_validator_log_level,
+            gossip_receiver_log_level=args.gossip_receiver_log_level,
+            publish_heartbeat_log_level=args.publish_heartbeat_log_level,
         )
         trio.run(server.run)
     except KeyboardInterrupt:

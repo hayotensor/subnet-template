@@ -53,6 +53,7 @@ class GossipReceiver:
         termination_event: trio.Event,
         db: RocksDB,
         topics: list[str],
+        log_level: int = logging.INFO,
     ):
         self.gossipsub = gossipsub
         self.pubsub = pubsub
@@ -60,6 +61,7 @@ class GossipReceiver:
         self.db = db
         self.topics = topics
         self._last_epoch: int | None = None
+        self.log_level = log_level
         self._seen_heartbeats: set[str] = set()  # e.g.: "epoch:peer_id"
 
         """
@@ -77,12 +79,12 @@ class GossipReceiver:
         async with trio.open_nursery() as nursery:
             for topic in self.topics:
                 subscription = await self.pubsub.subscribe(topic)
-                logger.info(f"Subscribed to topic: {topic}")
+                logger.log(self.log_level, f"Subscribed to topic: {topic}")
                 nursery.start_soon(self._receive_loop, subscription)
 
     async def _receive_loop(self, subscription: ISubscriptionAPI) -> None:
         """Receive loop for a single topic subscription."""
-        logger.debug("Starting receive loop")
+        logger.log(self.log_level, "Starting receive loop")
         while not self.termination_event.is_set():
             try:
                 message = await subscription.get()
@@ -96,7 +98,7 @@ class GossipReceiver:
         """Handle incoming message based on topic."""
         from_peer = base58.b58encode(message.from_id).decode()
         topic = message.topicIDs[0] if message.topicIDs else None
-        logger.debug(f"From peer: {from_peer}, topic: {topic}")
+        logger.log(self.log_level, f"From peer: {from_peer}, topic: {topic}")
 
         if topic == HEARTBEAT_TOPIC:
             await self._handle_heartbeat(message, from_peer)
@@ -127,18 +129,19 @@ class GossipReceiver:
 
         # Fast in-memory check
         if key in self._seen_heartbeats:
-            logger.debug(f"Heartbeat already seen (cached): {key}")
+            logger.log(self.log_level, f"Heartbeat already seen (cached): {key}")
             return
 
         # Check if already exists
         if self.db.nmap_get(HEARTBEAT_TOPIC, key) is not None:
-            logger.debug(f"Heartbeat already exists: {key}")
+            logger.log(self.log_level, f"Heartbeat already exists: {key}")
             return
 
         # Store it
         self.db.nmap_set(HEARTBEAT_TOPIC, key, message.data.decode("utf-8"))
-        logger.debug(
-            f"Heartbeat stored: {HEARTBEAT_TOPIC}:{key} for node ID {heartbeat_data.subnet_node_id}"  # noqa: E501
+        logger.log(
+            self.log_level,
+            f"Heartbeat stored: {HEARTBEAT_TOPIC}:{key} for node ID {heartbeat_data.subnet_node_id}",
         )
 
         # Add to in-memory set

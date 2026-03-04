@@ -17,6 +17,10 @@ from subnet.utils.pubsub.pubsub_validation import (
     SyncPubsubTopicValidator,
 )
 
+"""
+NOT CURRENTLY USED
+"""
+
 
 @unique
 class PubSubTopic(Enum):

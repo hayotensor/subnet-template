@@ -53,7 +53,7 @@ from subnet.utils.protocols.ping import handle_ping
 from subnet.utils.pubsub.custom_score_params import custom_score_params
 from subnet.utils.pubsub.heartbeat import (
     HEARTBEAT_TOPIC,
-    publish_loop,
+    publish_heartbeat_loop,
 )
 from subnet.utils.pubsub.pubsub_validation import (
     SyncHeartbeatMsgValidator,
@@ -102,6 +102,9 @@ class Server:
         enable_autotls: bool = False,
         resource_manager: ResourceManager | None = None,
         psk: str | None = None,
+        heartbeat_validator_log_level: int = logging.DEBUG,
+        gossip_receiver_log_level: int = logging.DEBUG,
+        publish_heartbeat_log_level: int = logging.DEBUG,
         **kwargs,
     ):
         logger.info(f"Server starting subnet_id={subnet_id}")
@@ -126,6 +129,9 @@ class Server:
         self.resource_manager = resource_manager
         self.psk = psk
         self.peerstore_db_path = peerstore_db_path
+        self.heartbeat_validator_log_level = heartbeat_validator_log_level
+        self.gossip_receiver_log_level = gossip_receiver_log_level
+        self.publish_heartbeat_log_level = publish_heartbeat_log_level
 
     async def run(self):
         logger.info(f"Server running subnet_id={self.subnet_id}")
@@ -275,6 +281,7 @@ class Server:
                                     self.hypertensor,
                                     self.subnet_id,
                                     proof_of_stake,
+                                    log_level=self.heartbeat_validator_log_level,
                                 ).validate,
                                 is_async_validator=False,
                             )
@@ -298,6 +305,7 @@ class Server:
                             termination_event=termination_event,
                             db=self.db,
                             topics=[HEARTBEAT_TOPIC],
+                            log_level=self.gossip_receiver_log_level,
                         )
                         nursery.start_soon(gossip_receiver.run)
 
@@ -322,13 +330,14 @@ class Server:
                         if not self.is_bootstrap:
                             # Start heartbeat publisher
                             nursery.start_soon(
-                                publish_loop,
+                                publish_heartbeat_loop,
                                 pubsub,
                                 HEARTBEAT_TOPIC,
                                 termination_event,
                                 self.subnet_id,
                                 self.subnet_node_id,
                                 self.hypertensor,
+                                self.publish_heartbeat_log_level,
                             )
 
                             if self.enable_consensus:
