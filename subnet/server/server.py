@@ -211,9 +211,6 @@ class Server:
 
         # Log available protocols
         logger.info(f"Host ID: {host.get_id()}")
-        logger.info(
-            f"Host multiselect protocols: {host.get_mux().get_protocols() if hasattr(host, 'get_mux') else 'N/A'}"
-        )
 
         termination_event = trio.Event()  # Event to signal termination
         async with host.run(listen_addrs=listen_addrs), trio.open_nursery() as nursery:
