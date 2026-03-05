@@ -23,7 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "libp2p @ git+https://github.com/libp2p/py-libp2p.git@main",
+    "libp2p @ git+https://github.com/libp2p/py-libp2p.git@c4abd7c19630c5ff25a89d263b22beb2183a64ae",
     "substrate-interface @ git+https://github.com/hayotensor/py-polkadot-sdk.git@hypertensor",
     "tenacity>=8.2.3",
     "multiaddr==0.0.11",
