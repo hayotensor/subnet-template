@@ -55,9 +55,16 @@ python -m subnet.cli.run_node \
 --port 38960 \
 --subnet_id 1 \
 --no_blockchain_rpc \
---is_bootstrap
+--is_bootstrap \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20
+
 
 # Connect to bootnode
+
+# 12D3KooWMwW1VqH7uWtUc5UGoyMJp1dG26Nkosc6RkRJ7RNiW6Cb
 
 python -m subnet.cli.run_node \
 --private_key_path alith.key \
@@ -65,7 +72,13 @@ python -m subnet.cli.run_node \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 1 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20
+
+# 12D3KooWM5J4zS17XR2LHGZgRpmzbeqg4Eibyq8sbRLwRuWxJqsV
 
 python -m subnet.cli.run_node \
 --private_key_path baltathar.key \
@@ -74,7 +87,13 @@ python -m subnet.cli.run_node \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 2 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20
+
+# 12D3KooWKxAhu5U8SreDZpokVkN6ciTBbsHxteo3Vmq6Cpuf8KEt
 
 python -m subnet.cli.run_node \
 --private_key_path charleth.key \
@@ -82,7 +101,13 @@ python -m subnet.cli.run_node \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 3 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20
+
+# 12D3KooWD1BgwEJGUXz3DsKVXGFq3VcmHRjeX56NKpyEa1QAP6uV
 
 python -m subnet.cli.run_node \
 --private_key_path dorothy.key \
@@ -90,39 +115,73 @@ python -m subnet.cli.run_node \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 4 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20
+
+# 12D3KooWMGKEpzz3EWGU2ayhwFriRh23QnQ479Ctfj8xSmDRirde
 
 python -m subnet.cli.run_node \
---private_key_path faith.key \
+--private_key_path ethan.key \
 --port 38965 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 5 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20
 
 python -m subnet.cli.run_node \
---private_key_path george.key \
+--private_key_path faith.key \
 --port 38966 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 6 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20
 
 python -m subnet.cli.run_node \
---private_key_path harry.key \
+--private_key_path george.key \
 --port 38967 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 7 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20
 
 python -m subnet.cli.run_node \
---private_key_path ian.key \
+--private_key_path harry.key \
 --port 38968 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
 --subnet_node_id 8 \
---no_blockchain_rpc
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20
+
+python -m subnet.cli.run_node \
+--private_key_path ian.key \
+--port 38969 \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
+--subnet_id 1 \
+--subnet_node_id 9 \
+--no_blockchain_rpc \
+--heartbeat_validator_log_level 20 \
+--gossip_receiver_log_level 20 \
+--publish_heartbeat_log_level 20 \
+--maintain_connections_log_level 20
 
 
 # Run locally with local RPC connection
@@ -286,6 +345,12 @@ python -m subnet.cli.run_node \
         type=int,
         default=logging.DEBUG,
         help="Log level for publish heartbeat. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
+    )
+    parser.add_argument(
+        "--maintain_connections_log_level",
+        type=int,
+        default=logging.DEBUG,
+        help="Log level for maintain connections. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
     )
 
     parser.add_argument(
@@ -524,6 +589,7 @@ def main() -> None:
             heartbeat_validator_log_level=args.heartbeat_validator_log_level,
             gossip_receiver_log_level=args.gossip_receiver_log_level,
             publish_heartbeat_log_level=args.publish_heartbeat_log_level,
+            maintain_connections_log_level=args.maintain_connections_log_level,
         )
         trio.run(server.run)
     except KeyboardInterrupt:

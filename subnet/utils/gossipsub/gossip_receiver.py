@@ -39,8 +39,11 @@ class GossipReceiver:
         nursery.start_soon(gossip.run)  # Starts sync loop + receive loops
 
     Validating database entries:
-        Create a function or class specific for validating pubsub messages based on the
-        topic.
+        Use topic validators for validating a pubsub message.
+
+        The use of this class is to handle what happens after the peer receives a message.
+
+        Capture messages from topics in `_handle_message`
 
         See `_handle_*` functions for examples
 
@@ -84,14 +87,14 @@ class GossipReceiver:
 
     async def _receive_loop(self, subscription: ISubscriptionAPI) -> None:
         """Receive loop for a single topic subscription."""
-        logger.log(self.log_level, "Starting receive loop")
+        logger.log(self.log_level, "Starting gossip receive loop")
         while not self.termination_event.is_set():
             try:
                 message = await subscription.get()
                 await self._handle_message(message)
 
             except Exception:
-                logger.exception("Error in receive loop")
+                logger.exception("Error in gossip receive loop")
                 await trio.sleep(1)
 
     async def _handle_message(self, message: rpc_pb2.Message) -> None:

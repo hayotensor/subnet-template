@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from functools import partial
 import logging
 from typing import TYPE_CHECKING, List, cast
 
@@ -105,6 +106,7 @@ class Server:
         heartbeat_validator_log_level: int = logging.DEBUG,
         gossip_receiver_log_level: int = logging.DEBUG,
         publish_heartbeat_log_level: int = logging.DEBUG,
+        maintain_connections_log_level: int = logging.DEBUG,
         **kwargs,
     ):
         logger.info(f"Server starting subnet_id={subnet_id}")
@@ -132,6 +134,7 @@ class Server:
         self.heartbeat_validator_log_level = heartbeat_validator_log_level
         self.gossip_receiver_log_level = gossip_receiver_log_level
         self.publish_heartbeat_log_level = publish_heartbeat_log_level
+        self.maintain_connections_log_level = maintain_connections_log_level
 
     async def run(self):
         logger.info(f"Server running subnet_id={self.subnet_id}")
@@ -238,8 +241,8 @@ class Server:
                 time_to_live=60,  # TTL for message cache in seconds
                 gossip_window=2,  # Smaller window for faster gossip
                 gossip_history=5,  # Keep more history
-                heartbeat_initial_delay=2.0,  # Start heartbeats sooner
-                heartbeat_interval=5,  # More frequent heartbeats for testing
+                heartbeat_initial_delay=0.5,  # Start heartbeats sooner
+                heartbeat_interval=2,  # More frequent heartbeats for testing
                 # score_params=custom_score_params(),
             )
             pubsub = Pubsub(host, gossipsub)
@@ -304,18 +307,22 @@ class Server:
                         # NOTE: Start this after host, gossipsub, and pubsub are initialized
                         if self.strict_maintain_connections:
                             nursery.start_soon(
-                                maintain_connections,
-                                host,
-                                subnet_info_tracker,
-                                gossipsub,
-                                pubsub,
-                                dht,
+                                partial(
+                                    maintain_connections,
+                                    host,
+                                    subnet_info_tracker,
+                                    gossipsub=gossipsub,
+                                    pubsub=pubsub,
+                                    dht=dht,
+                                    log_level=self.maintain_connections_log_level,
+                                )
                             )
                         else:
                             # Start basic connection maintenance
                             nursery.start_soon(
                                 basic_maintain_connections,
                                 host,
+                                self.maintain_connections_log_level,
                             )
 
                         if not self.is_bootstrap:

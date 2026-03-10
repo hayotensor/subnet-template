@@ -314,6 +314,13 @@ class Consensus:
         """
         logger.info(f"[Consensus] epoch: {current_epoch}")
 
+        # Check if we can be validator or attestor
+        # This is important in case a node sets emergency validators and not having misleading
+        # logs for nodes not classified as validator on-chain
+        if not is_validator_or_attestor(self.hypertensor, self.subnet_id, self.subnet_node_id):
+            logger.info("Not attestor or validator, moving to next epoch")
+            return
+
         scores = await self.get_scores(current_epoch)
 
         if scores is None:
@@ -386,7 +393,6 @@ class Consensus:
             )
 
             consensus_data = None  # Fetch one time once not None
-            _is_validator_or_attestor = False  # Check only once
             while not self.stop.is_set():
                 # Check consensus data exists in case attest fails
                 if consensus_data is None or consensus_data == None:  # noqa: E711
@@ -428,18 +434,6 @@ class Consensus:
                 Get all of the hosters inference outputs they stored to the DHT
                 """
                 if 1.0 == compare_consensus_data(my_data=scores, validator_data=validator_data):
-                    # Check if we can attest
-                    # This is important in case a node sets emergency validators
-                    if not _is_validator_or_attestor:
-                        _is_validator_or_attestor = is_validator_or_attestor(
-                            self.hypertensor, self.subnet_id, self.subnet_node_id
-                        )
-                        # If False, break
-                        # If True, check once
-                        if not _is_validator_or_attestor:
-                            logger.info("Not attestor or validator, moving to next epoch")
-                            break
-
                     # Check if we already attested
                     if did_node_attest(self.subnet_node_id, consensus_data):
                         logger.debug("Already attested, moving to next epoch")

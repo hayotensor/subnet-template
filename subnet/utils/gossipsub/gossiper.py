@@ -38,8 +38,6 @@ class Gossiper:
     DEGREE_LOW: int = 4
     # `D_high` (topic stable mesh high watermark)
     DEGREE_HIGH: int = 12
-    # `D_lazy` (gossip target)
-    DEGREE_LAZY: int = 6
     # `fanout_ttl` (ttl for fanout maps for topics we are not subscribed to
     #   but have published to seconds).
     FANOUT_TTL: int = 60
@@ -73,10 +71,12 @@ class Gossiper:
             degree=self.DEGREE,
             degree_low=self.DEGREE_LOW,
             degree_high=self.DEGREE_HIGH,
+            direct_peers=None,  # Direct peers
             time_to_live=self.FANOUT_TTL,
             gossip_window=self.GOSSIP_WINDOW,
             gossip_history=self.GOSSIP_HISTORY,
             heartbeat_interval=self.HEARTBEAT_INTERVAL,
+            # score_params=custom_score_params(),
         )
         self.gossipsub = gossipsub_router
         self.pubsub = Pubsub(host=self._host, router=gossipsub_router)

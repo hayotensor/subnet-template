@@ -18,6 +18,7 @@ from libp2p.peer.peerstore import PeerStore
 from libp2p.pubsub.exceptions import NoPubsubAttached
 from libp2p.pubsub.gossipsub import GossipSub
 from libp2p.pubsub.pubsub import Pubsub
+import trio
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,8 @@ def patch_write_msg():
 
 def patch_maybe_delete_peer_record():
     """
-    Patch fixes an issue in PeerStore.maybe_delete_peer_record where it crashes a peer with StreamReset when another peer is disconnected.
+    Patch fixes an issue in PeerStore.maybe_delete_peer_record where it crashes a peer with StreamReset when another
+    peer is disconnected.
     """
 
     def safe_maybe_delete_peer_record(self: PeerStore, peer_id: ID) -> bool:
@@ -95,8 +97,46 @@ def patch_maybe_delete_peer_record():
     PeerStore.maybe_delete_peer_record = safe_maybe_delete_peer_record
 
 
+def patch_pubsub_run():
+    """
+    Patch fixes an issue in Pubsub where it doesn't actively graft peers and add peers to its mesh (without new peers
+    entering) when below the target degree (or adaptive degree).
+
+    This will actively try to graft peers the peer is already connected to and add peers to its mesh when below the
+    target degree (or adaptive degree).
+    """
+
+    async def patch_run(self: Pubsub) -> None:
+        self.manager.run_daemon_task(self.handle_peer_queue)
+        self.manager.run_daemon_task(self.handle_dead_peer_queue)
+        self.manager.run_daemon_task(self._validation_cache_cleanup)
+        self.manager.run_daemon_task(_periodic_connection_sweep, self)
+        await self.manager.wait_finished()
+
+    async def _periodic_connection_sweep(self: Pubsub) -> None:
+        """
+        Periodically sweep existing host connections to ensure transient stream
+        negotiation failures don't permanently exclude peers from pubsub.
+        """
+        while True:
+            # Sleep first to give initial handlers time to fire
+            await trio.sleep(15)
+            network = self.host.get_network()
+            if hasattr(network, "connections"):
+                for peer_id in network.connections.keys():
+                    if peer_id not in self.peers and not self.is_peer_blacklisted(peer_id):
+                        print(
+                            "Periodic sweep: retrying connection to host peer %s",
+                            peer_id,
+                        )
+                        self.manager.run_task(self._handle_new_peer_safe, peer_id)
+
+    Pubsub.run = patch_run
+
+
 def apply_all_patches():
     """Apply all libp2p stability patches."""
     # patch_get_in_topic_gossipsub_peers_from_minus() # Fixed in PR #1116 https://github.com/libp2p/py-libp2p/pull/1116
     # patch_write_msg() # Fixed in PR #1117 https://github.com/libp2p/py-libp2p/pull/1117
     patch_maybe_delete_peer_record()
+    patch_pubsub_run()
