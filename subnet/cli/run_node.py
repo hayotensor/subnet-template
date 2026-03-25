@@ -50,6 +50,8 @@ Examples:
 
 # Start bootnode (or start bootnode through `run_bootnode`)
 
+# 12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
+
 python -m subnet.cli.run_node \
 --private_key_path bootnode.key \
 --port 38960 \
@@ -134,6 +136,8 @@ python -m subnet.cli.run_node \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20
+
+# 12D3KooWF963f4jiFX26xDKu7BrqtVYTx4Jk8rUQQUxwiJQjVFWH
 
 python -m subnet.cli.run_node \
 --private_key_path faith.key \
@@ -394,6 +398,13 @@ python -m subnet.cli.run_node \
         type=str,
         required=False,
         help="Coldkey phrase that controls actions which include funds, such as registering, and staking",
+    )
+
+    parser.add_argument(
+        "--telemetry_url",
+        type=str,
+        required=False,
+        help="Telemetry URL for Prometheus",
     )
 
     parser.add_argument(

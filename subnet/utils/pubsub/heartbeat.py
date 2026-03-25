@@ -1,4 +1,5 @@
 import logging
+import secrets
 from typing import Any
 
 from libp2p.custom_types import TProtocol
@@ -9,7 +10,6 @@ import trio
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.config import BLOCK_SECS
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
-from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
 
 # Configure logging
 logging.basicConfig(
@@ -20,10 +20,11 @@ logging.basicConfig(
 logger = logging.getLogger("server/1.0.0")
 
 HEARTBEAT_TOPIC = "heartbeat"
-HEARTBEATS_PER_EPOCH = 2
+HEARTBEATS_PER_EPOCH = 1
 
 
 class HeartbeatData(BaseModel):
+    uid: str  # UID required for any topics that may be duplicate within the TTL of the message
     epoch: int
     subnet_id: int
     subnet_node_id: int
@@ -81,7 +82,7 @@ async def publish_heartbeat_loop(
             # Only send if we haven't exceeded heartbeats for this epoch
             if heartbeat_count_in_epoch < HEARTBEATS_PER_EPOCH:
                 message = HeartbeatData(
-                    epoch=current_epoch, subnet_id=subnet_id, subnet_node_id=subnet_node_id
+                    uid=secrets.token_hex(16), epoch=current_epoch, subnet_id=subnet_id, subnet_node_id=subnet_node_id
                 ).to_bytes()
 
                 logger.log(

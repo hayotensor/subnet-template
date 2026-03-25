@@ -1,3 +1,4 @@
+from enum import Enum
 import logging
 from typing import Awaitable, Callable
 
@@ -108,6 +109,15 @@ class SyncPubsubTopicValidator:
 
     def validate(self, peer_id: ID, msg: rpc_pb2.Message) -> bool:
         return self.fn(peer_id, msg)
+
+
+class ValidationFailReason(Enum):
+    WRONG_SUBNET_ID = "wrong_subnet_id"
+    WRONG_SUBNET_NODE_ID = "wrong_subnet_node_id"
+    WRONG_EPOCH = "wrong_epoch"
+    PROOF_OF_STAKE_FAILURE = "proof_of_stake_failure"
+    SEEN_BEFORE = "seen_before"
+    INVALID_DATA = "invalid_data"
 
 
 class AsyncHeartbeatMsgValidator:
@@ -231,6 +241,7 @@ class SyncHeartbeatMsgValidator:
                 heartbeat_data = HeartbeatData.from_json(msg.data.decode("utf-8"))
             except (ValidationError, Exception) as e:
                 logger.warning(f"HeartbeatData validation failed: {e}", exc_info=True)
+                _validation_fail(from_peer_id, None, ValidationFailReason.INVALID_DATA)
                 return False
 
             logger.log(
@@ -239,14 +250,13 @@ class SyncHeartbeatMsgValidator:
 
             # Verify subnet ID
             if heartbeat_data.subnet_id != self.subnet_id:
+                _validation_fail(from_peer_id, heartbeat_data, ValidationFailReason.WRONG_SUBNET_ID)
                 return False
 
             # Verify from peer ID subnet node ID
             peer_node_id = self.subnet_info_tracker.get_peer_id_node_id_sync(from_peer_id, force=True)
             if heartbeat_data.subnet_node_id != peer_node_id:
-                logger.warning(
-                    f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat subnet node ID {heartbeat_data.subnet_node_id}, expected subnet node ID {peer_node_id}"  # noqa: E501
-                )
+                _validation_fail(from_peer_id, heartbeat_data, ValidationFailReason.WRONG_SUBNET_NODE_ID)
                 return False
 
             # Verify epoch
@@ -257,17 +267,13 @@ class SyncHeartbeatMsgValidator:
 
             same_epoch = heartbeat_data.epoch == current_epoch
             if not same_epoch:
-                logger.warning(
-                    f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat epoch {heartbeat_data.epoch}, current_epoch {current_epoch}"  # noqa: E501
-                )
+                _validation_fail(from_peer_id, heartbeat_data, ValidationFailReason.WRONG_EPOCH)
                 return False
 
             # Verify in-memory heartbeat
             key = f"{current_epoch}:{from_peer_id}"
             if key in self._seen_heartbeats:
-                logger.debug(
-                    f"Heartbeat validation, from_peer_id {from_peer_id}, epoch {current_epoch}, duplicate heartbeat"
-                )
+                _validation_fail(from_peer_id, heartbeat_data, ValidationFailReason.SEEN_BEFORE)
                 return False
 
             self._seen_heartbeats.add(key)
@@ -276,10 +282,20 @@ class SyncHeartbeatMsgValidator:
             if self.proof_of_stake is not None:
                 pos = self.proof_of_stake.proof_of_stake(from_peer_id)
                 if not pos:
-                    logger.warning(f"Heartbeat validation, from_peer_id {from_peer_id}, proof of stake: {pos}")
+                    _validation_fail(from_peer_id, heartbeat_data, ValidationFailReason.PROOF_OF_STAKE_FAILURE)
                     return False
 
             return True
         except Exception as e:
             logger.exception(f"Heartbeat validation failed: {e}")
             return False
+
+
+def _validation_fail(forwarder_peer_id: ID, from_peer_id: ID, heartbeat_data: HeartbeatData, reason: str) -> bool:
+    logger.warning(
+        f"Heartbeat validation failed, forwarder_peer_id {forwarder_peer_id}, from_peer_id {from_peer_id}, heartbeat {heartbeat_data}, reason: {reason}"
+    )
+    # Example:
+    # Store failure reason in db
+    # Ensure we have a created_at parameter in the db
+    return False

@@ -234,9 +234,9 @@ class Server:
 
             gossipsub = GossipSub(
                 protocols=[GOSSIPSUB_PROTOCOL_ID],
-                degree=3,  # Number of peers to maintain in mesh
-                degree_low=2,  # Lower bound for mesh peers
-                degree_high=4,  # Upper bound for mesh peers
+                degree=2,  # Number of peers to maintain in mesh
+                degree_low=1,  # Lower bound for mesh peers
+                degree_high=3,  # Upper bound for mesh peers
                 direct_peers=None,  # Direct peers
                 time_to_live=60,  # TTL for message cache in seconds
                 gossip_window=2,  # Smaller window for faster gossip
