@@ -60,6 +60,11 @@ from subnet.utils.pubsub.pubsub_validation import (
     SyncHeartbeatMsgValidator,
     SyncPubsubTopicValidator,
 )
+from libp2p.discovery.rendezvous import (
+    RendezvousDiscovery,
+    RendezvousService,
+    config,
+)
 
 if TYPE_CHECKING:
     from libp2p.network.swarm import Swarm
@@ -350,6 +355,10 @@ class Server:
                                     start=True,
                                 )
                                 nursery.start_soon(consensus._main_loop)
+                        else:
+                            # Start Rendezvous
+                            service = RendezvousService(host)
+                            nursery.start_soon(service.run)
 
                         await termination_event.wait()
 

@@ -224,7 +224,6 @@ class SyncHeartbeatMsgValidator:
         self.proof_of_stake = proof_of_stake
         self.last_epoch = None
         self.log_level = log_level
-        self._seen_heartbeats: set[str] = set()  # e.g.: "epoch:peer_id"
 
     def __call__(self, forwarder_peer_id: ID, msg: rpc_pb2.Message) -> bool:
         try:
@@ -241,7 +240,7 @@ class SyncHeartbeatMsgValidator:
                 heartbeat_data = HeartbeatData.from_json(msg.data.decode("utf-8"))
             except (ValidationError, Exception) as e:
                 logger.warning(f"HeartbeatData validation failed: {e}", exc_info=True)
-                _validation_fail(from_peer_id, None, ValidationFailReason.INVALID_DATA)
+                _validation_fail(forwarder_peer_id, from_peer_id, None, ValidationFailReason.INVALID_DATA)
                 return False
 
             logger.log(
@@ -250,39 +249,39 @@ class SyncHeartbeatMsgValidator:
 
             # Verify subnet ID
             if heartbeat_data.subnet_id != self.subnet_id:
-                _validation_fail(from_peer_id, heartbeat_data, ValidationFailReason.WRONG_SUBNET_ID)
+                _validation_fail(forwarder_peer_id, from_peer_id, heartbeat_data, ValidationFailReason.WRONG_SUBNET_ID)
                 return False
 
             # Verify from peer ID subnet node ID
             peer_node_id = self.subnet_info_tracker.get_peer_id_node_id_sync(from_peer_id, force=True)
             if heartbeat_data.subnet_node_id != peer_node_id:
-                _validation_fail(from_peer_id, heartbeat_data, ValidationFailReason.WRONG_SUBNET_NODE_ID)
+                _validation_fail(
+                    forwarder_peer_id, from_peer_id, heartbeat_data, ValidationFailReason.WRONG_SUBNET_NODE_ID
+                )
                 return False
 
             # Verify epoch
             current_epoch = self.hypertensor.get_subnet_epoch_data(self.subnet_info_tracker.get_subnet_slot()).epoch
             if self.last_epoch is not None and current_epoch != self.last_epoch:
-                self._seen_heartbeats.clear()
                 self.last_epoch = current_epoch
 
             same_epoch = heartbeat_data.epoch == current_epoch
             if not same_epoch:
-                _validation_fail(from_peer_id, heartbeat_data, ValidationFailReason.WRONG_EPOCH)
+                _validation_fail(forwarder_peer_id, from_peer_id, heartbeat_data, ValidationFailReason.WRONG_EPOCH)
                 return False
 
             # Verify in-memory heartbeat
-            key = f"{current_epoch}:{from_peer_id}"
-            if key in self._seen_heartbeats:
-                _validation_fail(from_peer_id, heartbeat_data, ValidationFailReason.SEEN_BEFORE)
-                return False
-
-            self._seen_heartbeats.add(key)
+            # Note: We no longer track seen heartbeats in the validator
+            #       This might be subjective in case a node didn't store the data, only aspects that
+            #       are  to all peers should be validated.
 
             # Verify proof of stake
             if self.proof_of_stake is not None:
                 pos = self.proof_of_stake.proof_of_stake(from_peer_id)
                 if not pos:
-                    _validation_fail(from_peer_id, heartbeat_data, ValidationFailReason.PROOF_OF_STAKE_FAILURE)
+                    _validation_fail(
+                        forwarder_peer_id, from_peer_id, heartbeat_data, ValidationFailReason.PROOF_OF_STAKE_FAILURE
+                    )
                     return False
 
             return True
@@ -291,11 +290,22 @@ class SyncHeartbeatMsgValidator:
             return False
 
 
-def _validation_fail(forwarder_peer_id: ID, from_peer_id: ID, heartbeat_data: HeartbeatData, reason: str) -> bool:
+def _validation_fail(
+    forwarder_peer_id: ID,
+    from_peer_id: ID,
+    heartbeat_data: HeartbeatData | None,
+    reason: str,
+) -> bool:
     logger.warning(
         f"Heartbeat validation failed, forwarder_peer_id {forwarder_peer_id}, from_peer_id {from_peer_id}, heartbeat {heartbeat_data}, reason: {reason}"
     )
-    # Example:
-    # Store failure reason in db
-    # Ensure we have a created_at parameter in the db
+
+    if heartbeat_data is not None:
+        # Store failure reason in db
+        # Ensure we have a created_at parameter in the db
+        ...
+    else:
+        # Store failure reason in db
+        # Ensure we have a created_at parameter in the db
+        ...
     return False
