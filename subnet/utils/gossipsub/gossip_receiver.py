@@ -8,7 +8,8 @@ from libp2p.pubsub.pubsub import Pubsub
 import trio
 
 from subnet.utils.db.database import RocksDB
-from subnet.utils.pubsub.heartbeat import HEARTBEAT_TOPIC, HeartbeatData
+from subnet.utils.pubsub.heartbeat import HeartbeatData
+from subnet.utils.pubsub.topics import HEARTBEAT_TOPIC
 
 logging.basicConfig(
     level=logging.INFO,

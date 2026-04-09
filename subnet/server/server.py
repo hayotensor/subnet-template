@@ -58,13 +58,13 @@ from subnet.utils.pos.proof_of_stake import ProofOfStake
 from subnet.utils.protocols.ping import handle_ping
 from subnet.utils.pubsub.custom_score_params import custom_score_params
 from subnet.utils.pubsub.heartbeat import (
-    HEARTBEAT_TOPIC,
     publish_heartbeat_loop,
 )
 from subnet.utils.pubsub.pubsub_validation import (
     SyncHeartbeatMsgValidator,
     SyncPubsubTopicValidator,
 )
+from subnet.utils.pubsub.topics import HEARTBEAT_TOPIC
 
 if TYPE_CHECKING:
     from libp2p.network.swarm import Swarm
@@ -356,9 +356,8 @@ class Server:
                                 )
                                 nursery.start_soon(consensus._main_loop)
                         else:
-                            # Start Rendezvous
+                            # TODO: Start Rendezvous
                             service = RendezvousService(host)
-                            nursery.start_soon(service.run)
 
                         await termination_event.wait()
 

@@ -19,7 +19,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("server/1.0.0")
 
-HEARTBEAT_TOPIC = "heartbeat"
 HEARTBEATS_PER_EPOCH = 1
 
 

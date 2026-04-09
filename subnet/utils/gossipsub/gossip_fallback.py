@@ -29,7 +29,8 @@ from subnet.protocols.pb.gossip_fallback_pb2 import (
 )
 from subnet.utils.db.database import RocksDB
 from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
-from subnet.utils.pubsub.heartbeat import HEARTBEAT_TOPIC, HeartbeatData
+from subnet.utils.pubsub.heartbeat import HeartbeatData
+from subnet.utils.pubsub.topics import HEARTBEAT_TOPIC
 
 # Configure logging
 logging.basicConfig(
