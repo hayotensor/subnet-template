@@ -9,6 +9,11 @@ from libp2p import (
 from libp2p.crypto.keys import KeyPair
 from libp2p.crypto.x25519 import create_new_key_pair as create_new_x25519_key_pair
 from libp2p.custom_types import ISecureTransport, TProtocol
+from libp2p.discovery.rendezvous import (
+    RendezvousDiscovery,
+    RendezvousService,
+    config,
+)
 from libp2p.kad_dht.kad_dht import (
     DHTMode,
     KadDHT,
@@ -59,11 +64,6 @@ from subnet.utils.pubsub.heartbeat import (
 from subnet.utils.pubsub.pubsub_validation import (
     SyncHeartbeatMsgValidator,
     SyncPubsubTopicValidator,
-)
-from libp2p.discovery.rendezvous import (
-    RendezvousDiscovery,
-    RendezvousService,
-    config,
 )
 
 if TYPE_CHECKING:

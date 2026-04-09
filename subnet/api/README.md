@@ -1,6 +1,8 @@
 # RocksDB API
 
-A production-ready REST API for querying RocksDB database with versioned endpoints, automatic documentation, and Docker support.
+A production-ready REST API for querying the RocksDB database with versioned endpoints, automatic documentation, and Docker support.
+
+This allows an API to query the subnet's state (by calling a peers API) without having to run a full node.
 
 ## Features
 
@@ -14,7 +16,7 @@ A production-ready REST API for querying RocksDB database with versioned endpoin
 
 ## Architecture
 
-```
+```bash
 ┌─────────────────────┐
 │   Peer Process      │  ← Writes to RocksDB
 └──────────┬──────────┘
@@ -40,6 +42,7 @@ pip install -e .
 ```
 
 The following dependencies will be installed:
+
 - `fastapi>=0.115.0` - Web framework
 - `uvicorn[standard]>=0.32.0` - ASGI server
 - `pydantic>=2.0.0` - Data validation
@@ -60,9 +63,10 @@ run_api
 ```
 
 The API will be available at:
-- **API**: http://localhost:8000
-- **Swagger UI**: http://localhost:8000/api/docs
-- **ReDoc**: http://localhost:8000/api/redoc
+
+- **API**: <http://localhost:8000>
+- **Swagger UI**: <http://localhost:8000/api/docs>
+- **ReDoc**: <http://localhost:8000/api/redoc>
 
 ### 3. Test the API
 
@@ -182,7 +186,8 @@ This enables auto-reload when code changes.
 
 ### Access API Documentation
 
-Visit http://localhost:8000/api/docs for interactive Swagger UI where you can:
+Visit <http://localhost:8000/api/docs> for interactive Swagger UI where you can:
+
 - Browse all endpoints
 - Test API calls directly
 - View request/response schemas
@@ -300,7 +305,7 @@ curl http://localhost:8000/api/v1.0/health/metrics
 
 ### Database Not Found
 
-```
+```bash
 FileNotFoundError: Database not found at /path/to/db_store
 ```
 
@@ -308,7 +313,7 @@ FileNotFoundError: Database not found at /path/to/db_store
 
 ### Port Already in Use
 
-```
+```bash
 OSError: [Errno 98] Address already in use
 ```
 
@@ -316,7 +321,7 @@ OSError: [Errno 98] Address already in use
 
 ### Permission Denied
 
-```
+```bash
 PermissionError: [Errno 13] Permission denied
 ```
 

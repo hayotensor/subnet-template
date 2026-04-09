@@ -8,6 +8,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from subnet.utils.db.database import RocksDB
 
+# python -m pytest tests/api/test_populate_db.py
+
 
 def populate_test_data():
     """Populate RocksDB with sample test data."""
