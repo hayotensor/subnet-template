@@ -67,6 +67,7 @@ class GossipReceiver:
         self._last_epoch: int | None = None
         self.log_level = log_level
         self._seen_heartbeats: set[str] = set()  # e.g.: "epoch:peer_id"
+        self._cleanup_interval = 300
 
         """
         self._seen_commits: set[str] = set()  # e.g.: "epoch:peer_id"
@@ -96,6 +97,17 @@ class GossipReceiver:
 
             except Exception:
                 logger.exception("Error in gossip receive loop")
+                await trio.sleep(1)
+
+    async def _cleanup_loop(self) -> None:
+        """Periodically clear seen message caches."""
+        while not self.termination_event.is_set():
+            try:
+                await trio.sleep(self._cleanup_interval)
+                self._seen_heartbeats.clear()
+                logger.log(self.log_level, "Cleared gossip seen caches")
+            except Exception:
+                logger.exception("Error in gossip cleanup loop")
                 await trio.sleep(1)
 
     async def _handle_message(self, message: rpc_pb2.Message) -> None:

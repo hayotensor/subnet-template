@@ -12,6 +12,8 @@ from libp2p.pubsub.gossipsub import GossipSub
 from libp2p.pubsub.pubsub import Pubsub
 from multiaddr import Multiaddr
 from pydantic import BaseModel
+import trio
+import trio_asyncio
 import uvicorn
 
 from subnet.consensus.consensus import Consensus
@@ -20,6 +22,7 @@ from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.network_api.config import ApiConfig
 from subnet.protocols.api_protocol import ApiProtocol
 from subnet.protocols.mock_protocol import MockProtocol
+from subnet.utils.db.database import RocksDB
 from subnet.utils.pos.proof_of_stake import ProofOfStake
 
 logger = logging.getLogger("network_api")
@@ -32,6 +35,8 @@ class NetworkApi:
 
     def __init__(
         self,
+        *,
+        db: RocksDB | None = None,
         host: IHost | None = None,
         dht: KadDHT | None = None,
         gossipsub: GossipSub | None = None,
@@ -42,6 +47,7 @@ class NetworkApi:
         api_protocol: ApiProtocol | None = None,
         mock_protocol: MockProtocol | None = None,
     ):
+        self.db = db
         self.host = host
         self.dht = dht
         self.gossipsub = gossipsub
@@ -95,12 +101,10 @@ class NetworkApiServer:
         self.app = FastAPI(title="P2P Network API Template")
         self.router = APIRouter()
         self.server: Optional[uvicorn.Server] = None
-        self._server_task: Optional[asyncio.Task] = None
+        self._finished = trio.Event()
 
         # Check if config is a path
         self._config_file = Path(config) if isinstance(config, (str, Path)) else None
-
-        # Load initial config
         self.config = self._load_config() if self._config_file else config
 
         # Basic IP Whitelisting Middleware
@@ -155,11 +159,14 @@ class NetworkApiServer:
         """
         self.app.add_api_route(path, endpoint, methods=methods)
 
-    async def start(self):
+    async def serve(self, *, task_status=trio.TASK_STATUS_IGNORED):
         """
-        Start the background API server asynchronously.
+        Run the API server. This is a blocking call.
+        Highly recommended to run this inside a trio nursery:
+        nursery.start_soon(api_server.serve)
         """
         if not self.config.enable_api:
+            task_status.started()
             return
 
         uvicorn_config = uvicorn.Config(
@@ -167,21 +174,39 @@ class NetworkApiServer:
             host=self.config.host,
             port=self.config.port,
             log_level="info",
+            loop="asyncio",
+            timeout_graceful_shutdown=5,
         )
         self.server = uvicorn.Server(uvicorn_config)
-        self._server_task = asyncio.create_task(self.server.serve())
+
+        # Disable uvicorn's signal handling by making it a no-op
+        import contextlib
+
+        @contextlib.contextmanager
+        def _no_capture():
+            yield
+
+        self.server.capture_signals = _no_capture
+
+        # Ensure the trio-asyncio loop is recognized as the current loop for the asyncio side
+        # This is critical for bridge calls (trio_as_aio / run_trio) to work inside FastAPI routes.
+        # Store the loop for use in routes
+        self.loop = trio_asyncio.current_loop.get()
+        asyncio.set_event_loop(self.loop)
+
+        task_status.started()
+        try:
+            await trio_asyncio.aio_as_trio(self.server.serve())
+        finally:
+            self._finished.set()
+            logger.info("NetworkApiServer has finished serving.")
 
     async def stop(self):
         """
         Gracefully stop the API server.
         """
         if self.server:
+            logger.info("Signaling uvicorn server to exit...")
             self.server.should_exit = True
-            if self._server_task:
-                await self._server_task
-        elif self._server_task:
-            self._server_task.cancel()
-            try:
-                await self._server_task
-            except asyncio.CancelledError:
-                pass
+            await self._finished.wait()
+            logger.info("NetworkApiServer stop complete.")

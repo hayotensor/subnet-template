@@ -357,7 +357,8 @@ class Server:
                                 nursery.start_soon(consensus._main_loop)
                         else:
                             # TODO: Start Rendezvous
-                            service = RendezvousService(host)
+                            # service = RendezvousService(host)
+                            pass
 
                         await termination_event.wait()
 
