@@ -242,9 +242,9 @@ class Server:
 
             gossipsub = GossipSub(
                 protocols=[GOSSIPSUB_PROTOCOL_ID],
-                degree=2,  # Number of peers to maintain in mesh
-                degree_low=1,  # Lower bound for mesh peers
-                degree_high=3,  # Upper bound for mesh peers
+                degree=7,  # Number of peers to maintain in mesh
+                degree_low=5,  # Lower bound for mesh peers
+                degree_high=10,  # Upper bound for mesh peers
                 direct_peers=None,  # Direct peers
                 time_to_live=60,  # TTL for message cache in seconds
                 gossip_window=2,  # Smaller window for faster gossip
@@ -273,6 +273,9 @@ class Server:
                         await pubsub.wait_until_ready()
                         logger.info("Pubsub ready.")
 
+                        if self.telemetry:
+                            nursery.start_soon(self.telemetry.run)
+
                         if self.enable_pubsub_validator:
                             pubsub.set_topic_validator(
                                 HEARTBEAT_TOPIC,
@@ -283,6 +286,7 @@ class Server:
                                     self.hypertensor,
                                     self.subnet_id,
                                     proof_of_stake,
+                                    telemetry=self.telemetry,
                                     log_level=self.heartbeat_validator_log_level,
                                 ).validate,
                                 is_async_validator=False,
@@ -307,6 +311,7 @@ class Server:
                             termination_event=termination_event,
                             db=self.db,
                             topics=[HEARTBEAT_TOPIC],
+                            telemetry=self.telemetry,
                             log_level=self.gossip_receiver_log_level,
                         )
                         nursery.start_soon(gossip_receiver.run)
@@ -322,15 +327,19 @@ class Server:
                                     gossipsub=gossipsub,
                                     pubsub=pubsub,
                                     dht=dht,
+                                    telemetry=self.telemetry,
                                     log_level=self.maintain_connections_log_level,
                                 )
                             )
                         else:
                             # Start basic connection maintenance
                             nursery.start_soon(
-                                basic_maintain_connections,
-                                host,
-                                self.maintain_connections_log_level,
+                                partial(
+                                    basic_maintain_connections,
+                                    host,
+                                    telemetry=self.telemetry,
+                                    log_level=self.maintain_connections_log_level,
+                                )
                             )
 
                         if not self.is_bootstrap:
@@ -342,7 +351,9 @@ class Server:
                                 termination_event,
                                 self.subnet_id,
                                 self.subnet_node_id,
+                                self.key_pair,
                                 self.hypertensor,
+                                self.telemetry,
                                 self.publish_heartbeat_log_level,
                             )
 

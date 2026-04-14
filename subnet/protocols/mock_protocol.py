@@ -21,8 +21,7 @@ import varint
 from subnet.protocols.pb.mock_protocol_pb2 import (
     MockProtocolMessage,
 )
-
-# from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
+from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
 
 # Configure logging
@@ -45,7 +44,7 @@ class MockProtocol:
     Peers register a single rpc_respond handler that processes incoming requests.
     """
 
-    def __init__(self, host: IHost, subnet_info_tracker: SubnetInfoTracker):
+    def __init__(self, host: IHost, subnet_info_tracker: SubnetInfoTracker, telemetry: Telemetry | None = None):
         """
         Initialize the MockProtocol.
 
@@ -56,6 +55,7 @@ class MockProtocol:
         """
         self.host = host
         self.subnet_info_tracker = subnet_info_tracker
+        self.telemetry = telemetry
 
         # Register the protocol with the host
         self.host.set_stream_handler(PROTOCOL_ID, self._handle_incoming_stream)

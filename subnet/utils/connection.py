@@ -11,6 +11,7 @@ from libp2p.pubsub.pubsub import Pubsub
 import trio
 
 from subnet.config import GOSSIPSUB_PROTOCOL_ID
+from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
 
 logger = logging.getLogger("subnet.utils.connection")
@@ -37,6 +38,7 @@ async def maintain_connections(
     connection_backoff_duration: float = 300.0,  # 5 minutes
     max_backoff_duration: float = 1080.0,  # 18 minutes
     retry_multiplier: float = 1.2,
+    telemetry: Telemetry | None = None,
     log_level: int = logging.DEBUG,
 ) -> None:
     """Maintain connections to ensure the host remains connected to healthy peers."""
@@ -361,7 +363,9 @@ async def demonstrate_random_walk_discovery(dht: KadDHT, interval: int = 30) -> 
         await trio.sleep(interval)
 
 
-async def basic_maintain_connections(host: IHost, log_level: int = logging.DEBUG) -> None:
+async def basic_maintain_connections(
+    host: IHost, telemetry: Telemetry | None = None, log_level: int = logging.DEBUG
+) -> None:
     """Maintain connections to ensure the host remains connected to healthy peers."""
     while True:
         try:
@@ -402,6 +406,9 @@ async def basic_maintain_connections(host: IHost, log_level: int = logging.DEBUG
                                     peer_info = host.get_peerstore().peer_info(peer_id)
                                     await host.connect(peer_info)
                                     logger.log(log_level, f"Connected to peer: {peer_id}")
+
+                                    if telemetry:
+                                        await telemetry.emit_async("peer_connected", peer_id=peer_id)
                             except Exception as e:
                                 logger.debug(f"Failed to connect to {peer_id}: {e}")
 

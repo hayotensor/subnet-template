@@ -62,7 +62,8 @@ python -m subnet.cli.run_node \
 --heartbeat_validator_log_level 20 \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 
 # Connect to bootnode
@@ -79,7 +80,8 @@ python -m subnet.cli.run_node \
 --heartbeat_validator_log_level 20 \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 # 12D3KooWM5J4zS17XR2LHGZgRpmzbeqg4Eibyq8sbRLwRuWxJqsV
 
@@ -94,7 +96,8 @@ python -m subnet.cli.run_node \
 --heartbeat_validator_log_level 20 \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080
 
 # 12D3KooWKxAhu5U8SreDZpokVkN6ciTBbsHxteo3Vmq6Cpuf8KEt
 
@@ -108,7 +111,8 @@ python -m subnet.cli.run_node \
 --heartbeat_validator_log_level 20 \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20
+--maintain_connections_log_level 20 \
+--telemetry_url ws://127.0.0.1:8080
 
 # 12D3KooWD1BgwEJGUXz3DsKVXGFq3VcmHRjeX56NKpyEa1QAP6uV
 
@@ -462,6 +466,7 @@ def main() -> None:
 
     telemetry = None
     if args.telemetry_url:
+        logger.info(f"Telemetry events starting at URL: {args.telemetry_url}")
         telemetry = Telemetry(args.telemetry_url, args.subnet_id, args.subnet_node_id, key_pair)
 
     hotkey = None

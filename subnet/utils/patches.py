@@ -139,4 +139,4 @@ def apply_all_patches():
     # patch_get_in_topic_gossipsub_peers_from_minus() # Fixed in PR #1116 https://github.com/libp2p/py-libp2p/pull/1116
     # patch_write_msg() # Fixed in PR #1117 https://github.com/libp2p/py-libp2p/pull/1117
     patch_maybe_delete_peer_record()
-    # patch_pubsub_run() # Only use this if the subnet will have <6 peers
+    # patch_pubsub_run()  # Only use this if the subnet will have <6 peers

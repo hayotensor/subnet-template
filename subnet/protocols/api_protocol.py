@@ -23,6 +23,7 @@ import varint
 from subnet.protocols.pb.api_protocol_pb2 import (
     ApiProtocolMessage,
 )
+from subnet.telemetry.telemetry import Telemetry
 
 # Configure logging
 logging.basicConfig(
@@ -71,7 +72,7 @@ class ApiProtocol:
     Peers register a single api_respond handler that processes incoming requests.
     """
 
-    def __init__(self, host: IHost, config: ApiProtocolConfig = None):
+    def __init__(self, host: IHost, config: ApiProtocolConfig = None, telemetry: Telemetry | None = None):
         """
         Initialize the ApiProtocol.
 
@@ -82,6 +83,7 @@ class ApiProtocol:
         """
         self.host = host
         self.config = config or ApiProtocolConfig()
+        self.telemetry = telemetry
 
         # Register the protocol with the host
         self.host.set_stream_handler(PROTOCOL_ID, self._handle_incoming_stream)
@@ -120,6 +122,9 @@ class ApiProtocol:
 
             await self._send_request(stream, route, method, headers, body, ApiProtocolMessage.UNARY)
 
+            if self.telemetry:
+                await self.telemetry.emit_async("api_call_remote", route=route, method=method, peer_id=peer_id)
+
             # Wait for response (unary means one chunk containing the whole response, or we read until EOF)
             response = await stream.read(MAX_READ_LEN)
             await stream.close()
@@ -150,6 +155,9 @@ class ApiProtocol:
             stream = await self.host.new_stream(peer_id, [PROTOCOL_ID])
 
             await self._send_request(stream, route, method, headers, body, ApiProtocolMessage.STREAM)
+
+            if self.telemetry:
+                await self.telemetry.emit_async("api_stream_remote", route=route, method=method, peer_id=peer_id)
 
             while True:
                 try:
@@ -210,6 +218,14 @@ class ApiProtocol:
                     await stream.write(b"Route not found")
                     await stream.close()
                     return
+
+                if self.telemetry:
+                    await self.telemetry.emit_async(
+                        "api_request_received",
+                        route=message.route,
+                        method=message.method,
+                        peer_id=peer_id,
+                    )
 
                 async with httpx.AsyncClient() as client:
                     async with client.stream(

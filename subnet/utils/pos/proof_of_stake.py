@@ -5,6 +5,7 @@ from typing import Dict
 from libp2p.peer.id import ID as PeerID
 
 from subnet.hypertensor.chain_functions import Hypertensor
+from subnet.telemetry.telemetry import Telemetry
 
 # Configure logging
 logging.basicConfig(
@@ -21,6 +22,7 @@ class ProofOfStake:
         subnet_id: int,
         hypertensor: Hypertensor,
         min_class: int,
+        telemetry: Telemetry | None = None,
     ):
         super().__init__()
 
@@ -31,6 +33,7 @@ class ProofOfStake:
         self.peer_id_to_last_failed_pos: Dict[PeerID, float] = {}
         self.pos_fail_cooldown: float = 300
         self.min_class = min_class
+        self.telemetry = telemetry
 
     def get_peer_id_last_success(self, peer_id: PeerID) -> float:
         return self.peer_id_to_last_successful_pos.get(peer_id, 0)
@@ -67,9 +70,13 @@ class ProofOfStake:
 
         if _proof_of_stake:
             self.update_peer_id_success(peer_id)
+            if self.telemetry:
+                self.telemetry.emit("pos_success", peer_id=peer_id.to_string())
             return True
         else:
             self.update_peer_id_fail(peer_id)
+            if self.telemetry:
+                self.telemetry.emit("pos_failure", peer_id=peer_id.to_string())
             return False
 
     def to_vec_u8(self, string):

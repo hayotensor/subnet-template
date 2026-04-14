@@ -2,7 +2,9 @@ import logging
 import secrets
 from typing import Any
 
+from libp2p.crypto.keys import KeyPair
 from libp2p.custom_types import TProtocol
+from libp2p.peer.id import ID
 from libp2p.pubsub.pubsub import Pubsub
 from pydantic import BaseModel
 import trio
@@ -10,6 +12,7 @@ import trio
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.config import BLOCK_SECS
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
+from subnet.telemetry.telemetry import Telemetry
 
 # Configure logging
 logging.basicConfig(
@@ -52,7 +55,9 @@ async def publish_heartbeat_loop(
     termination_event: trio.Event,
     subnet_id: int,
     subnet_node_id: int,
+    key_pair: KeyPair,
     hypertensor: LocalMockHypertensor | Hypertensor,
+    telemetry: Telemetry | None = None,
     log_level: int = logging.INFO,
 ):
     """Continuously publish heartbeats at regular intervals within each epoch."""
@@ -60,6 +65,8 @@ async def publish_heartbeat_loop(
 
     last_epoch = None
     heartbeat_count_in_epoch = 0
+
+    peer_id = ID.from_pubkey(key_pair.public_key)
 
     # Small initial sleep to let things initialize
     await trio.sleep(1)
@@ -89,6 +96,15 @@ async def publish_heartbeat_loop(
                     f"Publishing heartbeat {heartbeat_count_in_epoch + 1}/{HEARTBEATS_PER_EPOCH} for epoch {current_epoch}",
                 )
                 await pubsub.publish(topic, message)
+                if telemetry:
+                    await telemetry.emit_async(
+                        "heartbeat_sent",
+                        epoch=current_epoch,
+                        subnet_id=subnet_id,
+                        subnet_node_id=subnet_node_id,
+                        peer_id=peer_id.to_string(),
+                        message_size=len(message),
+                    )
                 logger.log(log_level, f"Published: {message}")
 
                 heartbeat_count_in_epoch += 1

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
+from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
 from subnet.utils.pos.proof_of_stake import ProofOfStake
 from subnet.utils.pubsub.heartbeat import HeartbeatData
@@ -134,6 +135,7 @@ class AsyncHeartbeatMsgValidator:
         hypertensor: LocalMockHypertensor | Hypertensor,
         subnet_id: int,
         proof_of_stake: ProofOfStake | None = None,
+        telemetry: Telemetry | None = None,
         log_level: int = logging.INFO,
     ):
         self.my_peer_id = my_peer_id
@@ -141,6 +143,7 @@ class AsyncHeartbeatMsgValidator:
         self.hypertensor = hypertensor
         self.subnet_id = subnet_id
         self.proof_of_stake = proof_of_stake
+        self.telemetry = telemetry
         self.log_level = log_level
 
     async def __call__(self, forwarder_peer_id: ID, msg: rpc_pb2.Message) -> bool:
@@ -158,12 +161,26 @@ class AsyncHeartbeatMsgValidator:
                 heartbeat_data = HeartbeatData.from_json(msg.data.decode("utf-8"))
             except (ValidationError, Exception) as e:
                 logger.warning(f"HeartbeatData validation failed: {e}", exc_info=True)
+                await _async_validation_fail(
+                    forwarder_peer_id,
+                    from_peer_id,
+                    None,
+                    ValidationFailReason.INVALID_DATA,
+                    self.telemetry,
+                )
                 return False
 
             # Verify subnet ID
             if heartbeat_data.subnet_id != self.subnet_id:
                 logger.debug(
                     f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat {heartbeat_data}, expected subnet ID {self.subnet_id}"  # noqa: E501
+                )
+                await _async_validation_fail(
+                    forwarder_peer_id,
+                    from_peer_id,
+                    heartbeat_data,
+                    ValidationFailReason.WRONG_SUBNET_ID,
+                    self.telemetry,
                 )
                 return False
 
@@ -172,6 +189,13 @@ class AsyncHeartbeatMsgValidator:
             if heartbeat_data.subnet_node_id != peer_node_id:
                 logger.debug(
                     f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat {heartbeat_data}, expected subnet node ID {peer_node_id}"  # noqa: E501
+                )
+                await _async_validation_fail(
+                    forwarder_peer_id,
+                    from_peer_id,
+                    heartbeat_data,
+                    ValidationFailReason.WRONG_SUBNET_NODE_ID,
+                    self.telemetry,
                 )
                 return False
 
@@ -184,6 +208,13 @@ class AsyncHeartbeatMsgValidator:
                 logger.debug(
                     f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat {heartbeat_data}, current_epoch {current_epoch}"  # noqa: E501
                 )
+                await _async_validation_fail(
+                    forwarder_peer_id,
+                    from_peer_id,
+                    heartbeat_data,
+                    ValidationFailReason.WRONG_EPOCH,
+                    self.telemetry,
+                )
                 return False
 
             # Verify proof of stake
@@ -192,6 +223,13 @@ class AsyncHeartbeatMsgValidator:
                 if not pos:
                     logger.debug(
                         f"Heartbeat validation, from_peer_id {from_peer_id}, heartbeat {heartbeat_data}, proof of stake: {pos}"  # noqa: E501
+                    )
+                    await _async_validation_fail(
+                        forwarder_peer_id,
+                        from_peer_id,
+                        heartbeat_data,
+                        ValidationFailReason.PROOF_OF_STAKE_FAILURE,
+                        self.telemetry,
                     )
                     return False
 
@@ -215,6 +253,7 @@ class SyncHeartbeatMsgValidator:
         hypertensor: LocalMockHypertensor | Hypertensor,
         subnet_id: int,
         proof_of_stake: ProofOfStake | None = None,
+        telemetry: Telemetry | None = None,
         log_level: int = logging.DEBUG,
     ):
         self.my_peer_id = my_peer_id
@@ -223,6 +262,7 @@ class SyncHeartbeatMsgValidator:
         self.subnet_id = subnet_id
         self.proof_of_stake = proof_of_stake
         self.last_epoch = None
+        self.telemetry = telemetry
         self.log_level = log_level
 
     def __call__(self, forwarder_peer_id: ID, msg: rpc_pb2.Message) -> bool:
@@ -240,7 +280,9 @@ class SyncHeartbeatMsgValidator:
                 heartbeat_data = HeartbeatData.from_json(msg.data.decode("utf-8"))
             except (ValidationError, Exception) as e:
                 logger.warning(f"HeartbeatData validation failed: {e}", exc_info=True)
-                _validation_fail(forwarder_peer_id, from_peer_id, None, ValidationFailReason.INVALID_DATA)
+                _validation_fail(
+                    forwarder_peer_id, from_peer_id, None, ValidationFailReason.INVALID_DATA, self.telemetry
+                )
                 return False
 
             logger.log(
@@ -256,7 +298,11 @@ class SyncHeartbeatMsgValidator:
             peer_node_id = self.subnet_info_tracker.get_peer_id_node_id_sync(from_peer_id, force=True)
             if heartbeat_data.subnet_node_id != peer_node_id:
                 _validation_fail(
-                    forwarder_peer_id, from_peer_id, heartbeat_data, ValidationFailReason.WRONG_SUBNET_NODE_ID
+                    forwarder_peer_id,
+                    from_peer_id,
+                    heartbeat_data,
+                    ValidationFailReason.WRONG_SUBNET_NODE_ID,
+                    self.telemetry,
                 )
                 return False
 
@@ -267,20 +313,21 @@ class SyncHeartbeatMsgValidator:
 
             same_epoch = heartbeat_data.epoch == current_epoch
             if not same_epoch:
-                _validation_fail(forwarder_peer_id, from_peer_id, heartbeat_data, ValidationFailReason.WRONG_EPOCH)
+                _validation_fail(
+                    forwarder_peer_id, from_peer_id, heartbeat_data, ValidationFailReason.WRONG_EPOCH, self.telemetry
+                )
                 return False
-
-            # Verify in-memory heartbeat
-            # Note: We no longer track seen heartbeats in the validator
-            #       This might be subjective in case a node didn't store the data, only aspects that
-            #       are  to all peers should be validated.
 
             # Verify proof of stake
             if self.proof_of_stake is not None:
                 pos = self.proof_of_stake.proof_of_stake(from_peer_id)
                 if not pos:
                     _validation_fail(
-                        forwarder_peer_id, from_peer_id, heartbeat_data, ValidationFailReason.PROOF_OF_STAKE_FAILURE
+                        forwarder_peer_id,
+                        from_peer_id,
+                        heartbeat_data,
+                        ValidationFailReason.PROOF_OF_STAKE_FAILURE,
+                        self.telemetry,
                     )
                     return False
 
@@ -295,6 +342,7 @@ def _validation_fail(
     from_peer_id: ID,
     heartbeat_data: HeartbeatData | None,
     reason: str,
+    telemetry: Telemetry | None = None,
 ) -> bool:
     logger.warning(
         f"Heartbeat validation failed, forwarder_peer_id {forwarder_peer_id}, from_peer_id {from_peer_id}, heartbeat {heartbeat_data}, reason: {reason}"
@@ -308,4 +356,35 @@ def _validation_fail(
         # Store failure reason in db
         # Ensure we have a created_at parameter in the db
         ...
+
+    if telemetry:
+        telemetry.emit("heartbeat_validation_failed", reason=reason, data=heartbeat_data)
+
+    return False
+
+
+async def _async_validation_fail(
+    forwarder_peer_id: ID,
+    from_peer_id: ID,
+    heartbeat_data: HeartbeatData | None,
+    reason: str,
+    telemetry: Telemetry | None = None,
+) -> bool:
+    logger.warning(
+        f"Heartbeat validation failed, forwarder_peer_id {forwarder_peer_id}, from_peer_id {from_peer_id}, heartbeat {heartbeat_data}, reason: {reason}"
+    )
+
+    if heartbeat_data is not None:
+        # Store failure reason in db
+        # Ensure we have a created_at parameter in the db
+        ...
+    else:
+        # Store failure reason in db
+        # Ensure we have a created_at parameter in the db
+        ...
+
+    # Optionally emit telemetry event
+    if telemetry:
+        await telemetry.emit_async("heartbeat_validation_failed", reason=reason, data=heartbeat_data)
+
     return False

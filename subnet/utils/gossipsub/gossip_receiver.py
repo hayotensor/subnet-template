@@ -7,6 +7,7 @@ from libp2p.pubsub.pb import rpc_pb2
 from libp2p.pubsub.pubsub import Pubsub
 import trio
 
+from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.db.database import RocksDB
 from subnet.utils.pubsub.heartbeat import HeartbeatData
 from subnet.utils.pubsub.topics import HEARTBEAT_TOPIC
@@ -57,6 +58,7 @@ class GossipReceiver:
         termination_event: trio.Event,
         db: RocksDB,
         topics: list[str],
+        telemetry: Telemetry | None = None,
         log_level: int = logging.INFO,
     ):
         self.gossipsub = gossipsub
@@ -64,6 +66,7 @@ class GossipReceiver:
         self.termination_event = termination_event
         self.db = db
         self.topics = topics
+        self.telemetry = telemetry
         self._last_epoch: int | None = None
         self.log_level = log_level
         self._seen_heartbeats: set[str] = set()  # e.g.: "epoch:peer_id"
@@ -159,6 +162,14 @@ class GossipReceiver:
             self.log_level,
             f"Heartbeat stored: {HEARTBEAT_TOPIC}:{key} for node ID {heartbeat_data.subnet_node_id}",
         )
+
+        if self.telemetry:
+            await self.telemetry.emit_async(
+                "heartbeat_received",
+                key=key,
+                data=message.data.decode("utf-8"),
+                message_size=len(message.data),
+            )
 
         # Add to in-memory set
         self._seen_heartbeats.add(key)

@@ -6,6 +6,7 @@ import logging
 
 from libp2p.abc import IHost, INetStream
 
+from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.db.database import RocksDB
 
 # Configure logging
@@ -28,7 +29,7 @@ class SyncProtocol:
     Peers register a single api_respond handler that processes incoming requests.
     """
 
-    def __init__(self, host: IHost, db: RocksDB):
+    def __init__(self, host: IHost, db: RocksDB, telemetry: Telemetry | None = None):
         """
         Initialize the SyncProtocol.
 
@@ -38,6 +39,8 @@ class SyncProtocol:
 
         """
         self.host = host
+        self.db = db
+        self.telemetry = telemetry
 
         # Register the protocol with the host
         self.host.set_stream_handler(PROTOCOL_ID, self._handle_incoming_stream)
