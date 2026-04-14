@@ -97,7 +97,7 @@ python -m subnet.cli.run_node \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
---telemetry_url ws://127.0.0.1:8080
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 # 12D3KooWKxAhu5U8SreDZpokVkN6ciTBbsHxteo3Vmq6Cpuf8KEt
 
@@ -112,7 +112,7 @@ python -m subnet.cli.run_node \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
---telemetry_url ws://127.0.0.1:8080
+--telemetry_url ws://127.0.0.1:8080/ingest
 
 # 12D3KooWD1BgwEJGUXz3DsKVXGFq3VcmHRjeX56NKpyEa1QAP6uV
 

@@ -59,13 +59,14 @@ from subnet.utils.pos.proof_of_stake import ProofOfStake
 from subnet.utils.protocols.ping import handle_ping
 from subnet.utils.pubsub.custom_score_params import custom_score_params
 from subnet.utils.pubsub.heartbeat import (
-    publish_heartbeat_loop,
+    HeartbeatPublisher,
 )
+from subnet.utils.pubsub.peer_state import PeerRole, PeerStatePublisher, ServerState
 from subnet.utils.pubsub.pubsub_validation import (
     SyncHeartbeatMsgValidator,
     SyncPubsubTopicValidator,
 )
-from subnet.utils.pubsub.topics import HEARTBEAT_TOPIC
+from subnet.utils.pubsub.topics import HEARTBEAT_TOPIC, PEER_STATE_TOPIC
 
 if TYPE_CHECKING:
     from libp2p.network.swarm import Swarm
@@ -145,237 +146,309 @@ class Server:
         self.maintain_connections_log_level = maintain_connections_log_level
 
     async def run(self):
-        logger.info(f"Server running subnet_id={self.subnet_id}")
-        from libp2p.utils.address_validation import (
-            get_available_interfaces,
-            get_optimal_binding_address,
-        )
-
-        listen_addrs = get_available_interfaces(self.port)
-
-        logger.info(f"Initial listen addrs: {listen_addrs}")
-
-        proof_of_stake = None
-        if self.enable_proof_of_stake:
-            proof_of_stake = ProofOfStake(
-                subnet_id=self.subnet_id,
-                hypertensor=self.hypertensor,
-                min_class=0,
+        try:
+            logger.info(f"Server running subnet_id={self.subnet_id}")
+            from libp2p.utils.address_validation import (
+                get_available_interfaces,
+                get_optimal_binding_address,
             )
 
-            pos_noise_transport = POSTransport(
-                transport=NoiseTransport(
-                    self.key_pair,
-                    noise_privkey=create_new_x25519_key_pair().private_key,
-                ),
-                pos=proof_of_stake,
-                log_level=logging.INFO if self.is_bootstrap else logging.DEBUG,
-            )
+            listen_addrs = get_available_interfaces(self.port)
 
-            pos_secio_transport = POSTransport(
-                transport=SecioTransport(
-                    self.key_pair,
-                ),
-                pos=proof_of_stake,
-                log_level=logging.INFO if self.is_bootstrap else logging.DEBUG,
-            )
+            logger.info(f"Initial listen addrs: {listen_addrs}")
 
-            secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
-                POS_PROTOCOL_ID: pos_noise_transport,
-                TProtocol(secio.ID): pos_secio_transport,
-            }
-        else:
-            secure_transports_by_protocol = None  # Use default transports
-
-        if self.peerstore_db_path is not None:
-            # peerstore = create_async_peerstore(
-            #     db_path=self.peerstore_db_path,
-            #     backend="leveldb",
-            # )
-            # peerstore = create_sync_peerstore(
-            #     db_path=self.peerstore_db_path,
-            #     backend="leveldb",
-            # )
-            raise NotImplementedError("Persistent peerstore not implemented.")
-        else:
-            peerstore = None
-
-        # Create a new libp2p host
-        host = new_host(
-            key_pair=self.key_pair,
-            listen_addrs=listen_addrs,
-            sec_opt=secure_transports_by_protocol,
-            peerstore_opt=peerstore,
-            enable_upnp=self.enable_upnp,
-            enable_mDNS=self.enable_mDNS,
-            enable_autotls=self.enable_autotls,
-            # enable_quic=True,
-            # quic_transport_opt=QUICTransportConfig(),
-            resource_manager=self.resource_manager,
-            psk=self.psk,
-        )
-
-        # Increase connection limits to prevent aggressive pruning (EOF/0-byte reads)
-        # This is done manually because new_host() only exposes this via QUIC config.
-        # We cast to Swarm so the IDE/type checker recognizes the connection_config.
-        cast("Swarm", host.get_network()).connection_config.max_connections_per_peer = 6
-
-        # Log available protocols
-        logger.info(f"Host ID: {host.get_id()}")
-
-        termination_event = trio.Event()  # Event to signal termination
-        async with host.run(listen_addrs=listen_addrs), trio.open_nursery() as nursery:
-            logger.info(f"Listening address: {listen_addrs}")
-
-            # Start the peer-store cleanup task, TTL
-            nursery.start_soon(host.get_peerstore().start_cleanup_task, 60)
-
-            # Set stream handler for ping protocol (used by overwatch nodes)
-            host.set_stream_handler(PING_PROTOCOL_ID, handle_ping)
-
-            dht = KadDHT(
-                host,
-                DHTMode.SERVER,
-                enable_random_walk=True,
-                validator=NamespacedValidator({"pk": PublicKeyValidator()}),
-            )
-
-            gossipsub = GossipSub(
-                protocols=[GOSSIPSUB_PROTOCOL_ID],
-                degree=7,  # Number of peers to maintain in mesh
-                degree_low=5,  # Lower bound for mesh peers
-                degree_high=10,  # Upper bound for mesh peers
-                direct_peers=None,  # Direct peers
-                time_to_live=60,  # TTL for message cache in seconds
-                gossip_window=2,  # Smaller window for faster gossip
-                gossip_history=5,  # Keep more history
-                heartbeat_initial_delay=0.5,  # Start heartbeats sooner
-                heartbeat_interval=2,  # More frequent heartbeats for testing
-                # score_params=custom_score_params(),
-            )
-            pubsub = Pubsub(host, gossipsub)
-
-            # Start the background services
-            async with background_trio_service(dht):
-                subnet_info_tracker = SubnetInfoTracker(
-                    termination_event,
-                    self.subnet_id,
-                    self.subnet_slot,
-                    self.hypertensor,
+            # ------------------------------------------------------------------------
+            # Initialize the Proof of Stake mechanism
+            #
+            # This is used to validate the proof of stake of other peers.
+            #
+            # This ensures only peers that are registered to the subnet on-chain
+            # are allowed to connect and communicate with the peer.
+            #
+            # This mechanism is used at the host level alongside the secure transports
+            # for secure connections (i.e., handshakes, negotiating secure channels),
+            # and gossip validators for pubsub messages.
+            # ------------------------------------------------------------------------
+            proof_of_stake = None
+            if self.enable_proof_of_stake:
+                proof_of_stake = ProofOfStake(
+                    subnet_id=self.subnet_id,
+                    hypertensor=self.hypertensor,
+                    min_class=0,
                 )
 
-                # Display the random walk
-                nursery.start_soon(demonstrate_random_walk_discovery, dht, 30)
+                pos_noise_transport = POSTransport(
+                    transport=NoiseTransport(
+                        self.key_pair,
+                        noise_privkey=create_new_x25519_key_pair().private_key,
+                    ),
+                    pos=proof_of_stake,
+                    log_level=logging.INFO if self.is_bootstrap else logging.DEBUG,
+                )
 
-                async with background_trio_service(pubsub):
-                    async with background_trio_service(gossipsub):
-                        logger.info("Pubsub and GossipSub services started.")
-                        await pubsub.wait_until_ready()
-                        logger.info("Pubsub ready.")
+                pos_secio_transport = POSTransport(
+                    transport=SecioTransport(
+                        self.key_pair,
+                    ),
+                    pos=proof_of_stake,
+                    log_level=logging.INFO if self.is_bootstrap else logging.DEBUG,
+                )
 
-                        if self.telemetry:
-                            nursery.start_soon(self.telemetry.run)
+                secure_transports_by_protocol: Mapping[TProtocol, ISecureTransport] = {
+                    POS_PROTOCOL_ID: pos_noise_transport,
+                    TProtocol(secio.ID): pos_secio_transport,
+                }
+            else:
+                secure_transports_by_protocol = None  # Use default transports
 
-                        if self.enable_pubsub_validator:
-                            pubsub.set_topic_validator(
-                                HEARTBEAT_TOPIC,
-                                SyncPubsubTopicValidator.from_predicate_class(
-                                    SyncHeartbeatMsgValidator,
-                                    host.get_id(),
-                                    subnet_info_tracker,
-                                    self.hypertensor,
-                                    self.subnet_id,
-                                    proof_of_stake,
-                                    telemetry=self.telemetry,
-                                    log_level=self.heartbeat_validator_log_level,
-                                ).validate,
-                                is_async_validator=False,
+            if self.peerstore_db_path is not None:
+                # peerstore = create_async_peerstore(
+                #     db_path=self.peerstore_db_path,
+                #     backend="leveldb",
+                # )
+                # peerstore = create_sync_peerstore(
+                #     db_path=self.peerstore_db_path,
+                #     backend="leveldb",
+                # )
+                raise NotImplementedError("Persistent peerstore not implemented.")
+            else:
+                peerstore = None
+
+            # ----------------------------------------------------------------
+            # Create a new libp2p host
+            #
+            # This is the base layer of your peer.
+            # ----------------------------------------------------------------
+            host = new_host(
+                key_pair=self.key_pair,
+                listen_addrs=listen_addrs,
+                sec_opt=secure_transports_by_protocol,
+                peerstore_opt=peerstore,
+                enable_upnp=self.enable_upnp,
+                enable_mDNS=self.enable_mDNS,
+                enable_autotls=self.enable_autotls,
+                # enable_quic=True,
+                # quic_transport_opt=QUICTransportConfig(),
+                resource_manager=self.resource_manager,
+                psk=self.psk,
+            )
+
+            # Increase connection limits to prevent aggressive pruning (EOF/0-byte reads)
+            # This is done manually because new_host() only exposes this via QUIC config.
+            # We cast to Swarm so the IDE/type checker recognizes the connection_config.
+            cast("Swarm", host.get_network()).connection_config.max_connections_per_peer = 6
+
+            # Log available protocols
+            logger.info(f"Host ID: {host.get_id()}")
+
+            termination_event = trio.Event()  # Event to signal termination
+            async with host.run(listen_addrs=listen_addrs), trio.open_nursery() as nursery:
+                logger.info(f"Listening address: {listen_addrs}")
+
+                # Start the peer-store cleanup task, TTL
+                nursery.start_soon(host.get_peerstore().start_cleanup_task, 60)
+
+                # Set stream handler for ping protocol (used by overwatch nodes)
+                host.set_stream_handler(PING_PROTOCOL_ID, handle_ping)
+
+                # -----------------------------------------------
+                # Create a new DHT
+                #
+                # The DHT is used for peer discovery and routing.
+                # -----------------------------------------------
+                dht = KadDHT(
+                    host,
+                    DHTMode.SERVER,
+                    enable_random_walk=True,
+                    validator=NamespacedValidator({"pk": PublicKeyValidator()}),
+                )
+
+                gossipsub = GossipSub(
+                    protocols=[GOSSIPSUB_PROTOCOL_ID],
+                    degree=7,  # Number of peers to maintain in mesh
+                    degree_low=5,  # Lower bound for mesh peers
+                    degree_high=10,  # Upper bound for mesh peers
+                    direct_peers=None,  # Direct peers
+                    time_to_live=60,  # TTL for message cache in seconds
+                    gossip_window=2,  # Smaller window for faster gossip
+                    gossip_history=5,  # Keep more history
+                    heartbeat_initial_delay=0.5,  # Start heartbeats sooner
+                    heartbeat_interval=2,  # More frequent heartbeats for testing
+                    # score_params=custom_score_params(),
+                )
+                pubsub = Pubsub(host, gossipsub)
+
+                # Start the background services
+                async with background_trio_service(dht):
+                    subnet_info_tracker = SubnetInfoTracker(
+                        termination_event,
+                        self.subnet_id,
+                        self.subnet_slot,
+                        self.hypertensor,
+                    )
+
+                    # ----------------------------------------------------------------
+                    # Display the random walk
+                    #
+                    # This is only for logging purposes.
+                    # ----------------------------------------------------------------
+                    nursery.start_soon(demonstrate_random_walk_discovery, dht, 30)
+
+                    async with background_trio_service(pubsub):
+                        async with background_trio_service(gossipsub):
+                            logger.info("Pubsub and GossipSub services started.")
+                            await pubsub.wait_until_ready()
+                            logger.info("Pubsub ready.")
+
+                            # ----------------------------------------------------------------
+                            # Start telemetry service to send metrics to the telemetry server.
+                            # ----------------------------------------------------------------
+                            if self.telemetry:
+                                nursery.start_soon(self.telemetry.run)
+
+                            if self.enable_pubsub_validator:
+                                # ---------------------------------------------------------------
+                                # Set pubsub top validator for heartbeat topic
+                                #
+                                # This is responsible for validating incoming heartbeat messages.
+                                #
+                                # More validators can be added for each topic.
+                                # ---------------------------------------------------------------
+                                pubsub.set_topic_validator(
+                                    HEARTBEAT_TOPIC,
+                                    SyncPubsubTopicValidator.from_predicate_class(
+                                        SyncHeartbeatMsgValidator,
+                                        host.get_id(),
+                                        subnet_info_tracker,
+                                        self.hypertensor,
+                                        self.subnet_id,
+                                        proof_of_stake,
+                                        telemetry=self.telemetry,
+                                        log_level=self.heartbeat_validator_log_level,
+                                    ).validate,
+                                    is_async_validator=False,
+                                )
+
+                            # Connect to bootstrap nodes AFTER starting services
+                            # This avoids AttributeError on incoming streams
+                            if self.bootstrap_addrs is not None:
+                                await connect_to_bootstrap_nodes(host, self.bootstrap_addrs)
+
+                            optimal_addr = get_optimal_binding_address(self.port)
+                            optimal_addr_with_peer = f"{optimal_addr}/p2p/{host.get_id().to_string()}"
+                            logger.info(f"\nRunning peer on {optimal_addr_with_peer}\n")
+
+                            for peer_id in host.get_peerstore().peer_ids():
+                                await dht.routing_table.add_peer(peer_id)
+
+                            # ---------------------------------------------------------------------------
+                            # Start gossip receiver
+                            #
+                            # This is responsible for handling incoming messages from the gossip network.
+                            # ---------------------------------------------------------------------------
+                            gossip_receiver = GossipReceiver(
+                                gossipsub=gossipsub,
+                                pubsub=pubsub,
+                                termination_event=termination_event,
+                                db=self.db,
+                                topics=[HEARTBEAT_TOPIC, PEER_STATE_TOPIC],
+                                telemetry=self.telemetry,
+                                log_level=self.gossip_receiver_log_level,
                             )
+                            nursery.start_soon(gossip_receiver.run)
 
-                        # Connect to bootstrap nodes AFTER starting services
-                        # This avoids AttributeError on incoming streams
-                        if self.bootstrap_addrs is not None:
-                            await connect_to_bootstrap_nodes(host, self.bootstrap_addrs)
+                            # Keep nodes connected to each other
+                            # NOTE: Start this after host, gossipsub, and pubsub are initialized
+                            if self.strict_maintain_connections:
+                                nursery.start_soon(
+                                    partial(
+                                        maintain_connections,
+                                        host,
+                                        subnet_info_tracker,
+                                        gossipsub=gossipsub,
+                                        pubsub=pubsub,
+                                        dht=dht,
+                                        telemetry=self.telemetry,
+                                        log_level=self.maintain_connections_log_level,
+                                    )
+                                )
+                            else:
+                                # Start basic connection maintenance
+                                nursery.start_soon(
+                                    partial(
+                                        basic_maintain_connections,
+                                        host,
+                                        telemetry=self.telemetry,
+                                        log_level=self.maintain_connections_log_level,
+                                    )
+                                )
 
-                        optimal_addr = get_optimal_binding_address(self.port)
-                        optimal_addr_with_peer = f"{optimal_addr}/p2p/{host.get_id().to_string()}"
-                        logger.info(f"\nRunning peer on {optimal_addr_with_peer}\n")
+                            if not self.is_bootstrap:
+                                if self.enable_consensus:
+                                    # Start consensus
+                                    consensus = Consensus(
+                                        db=self.db,
+                                        subnet_id=self.subnet_id,
+                                        subnet_node_id=self.subnet_node_id,
+                                        subnet_info_tracker=subnet_info_tracker,
+                                        hypertensor=self.hypertensor,
+                                        skip_activate_subnet=False,
+                                        start=True,
+                                    )
+                                    nursery.start_soon(consensus._main_loop)
 
-                        for peer_id in host.get_peerstore().peer_ids():
-                            await dht.routing_table.add_peer(peer_id)
+                                # ------------------------------------------------------------------
+                                # Start gossip publishers
+                                #
+                                # The following are gossip examples to get you started and display how
+                                # to use multiple topics.
+                                #
+                                # See topic validator above at `pubsub.set_topic_validator`
+                                # ------------------------------------------------------------------
 
-                        # Start gossip receiver
-                        gossip_receiver = GossipReceiver(
-                            gossipsub=gossipsub,
-                            pubsub=pubsub,
-                            termination_event=termination_event,
-                            db=self.db,
-                            topics=[HEARTBEAT_TOPIC],
-                            telemetry=self.telemetry,
-                            log_level=self.gossip_receiver_log_level,
-                        )
-                        nursery.start_soon(gossip_receiver.run)
-
-                        # Keep nodes connected to each other
-                        # NOTE: Start this after host, gossipsub, and pubsub are initialized
-                        if self.strict_maintain_connections:
-                            nursery.start_soon(
-                                partial(
-                                    maintain_connections,
-                                    host,
-                                    subnet_info_tracker,
-                                    gossipsub=gossipsub,
+                                # Start heartbeat publisher
+                                heartbeat_publisher = HeartbeatPublisher(
                                     pubsub=pubsub,
-                                    dht=dht,
-                                    telemetry=self.telemetry,
-                                    log_level=self.maintain_connections_log_level,
-                                )
-                            )
-                        else:
-                            # Start basic connection maintenance
-                            nursery.start_soon(
-                                partial(
-                                    basic_maintain_connections,
-                                    host,
-                                    telemetry=self.telemetry,
-                                    log_level=self.maintain_connections_log_level,
-                                )
-                            )
-
-                        if not self.is_bootstrap:
-                            # Start heartbeat publisher
-                            nursery.start_soon(
-                                publish_heartbeat_loop,
-                                pubsub,
-                                HEARTBEAT_TOPIC,
-                                termination_event,
-                                self.subnet_id,
-                                self.subnet_node_id,
-                                self.key_pair,
-                                self.hypertensor,
-                                self.telemetry,
-                                self.publish_heartbeat_log_level,
-                            )
-
-                            if self.enable_consensus:
-                                # Start consensus
-                                consensus = Consensus(
-                                    db=self.db,
+                                    topic=HEARTBEAT_TOPIC,
                                     subnet_id=self.subnet_id,
                                     subnet_node_id=self.subnet_node_id,
-                                    subnet_info_tracker=subnet_info_tracker,
                                     hypertensor=self.hypertensor,
-                                    skip_activate_subnet=False,
-                                    start=True,
+                                    telemetry=self.telemetry,
+                                    log_level=self.publish_heartbeat_log_level,
                                 )
-                                nursery.start_soon(consensus._main_loop)
-                        else:
-                            # TODO: Start Rendezvous
-                            # service = RendezvousService(host)
-                            pass
+                                nursery.start_soon(heartbeat_publisher.run)
 
-                        await termination_event.wait()
+                                # Start peer state publisher
+                                # Publish peer state JOINING, and later update it
+                                peer_state_publisher = PeerStatePublisher(
+                                    pubsub=pubsub,
+                                    topic=PEER_STATE_TOPIC,
+                                    start_state=ServerState.JOINING,
+                                    start_role=PeerRole.VALIDATOR,
+                                    subnet_id=self.subnet_id,
+                                    subnet_node_id=self.subnet_node_id,
+                                    hypertensor=self.hypertensor,
+                                    telemetry=self.telemetry,
+                                    log_level=self.publish_heartbeat_log_level,
+                                )
+                                nursery.start_soon(peer_state_publisher.run)
 
+                                # Add any other required custom logic here
+                                await trio.sleep(5)
+
+                                # Update the publisher state to ONLINE for the next publish once peer is ready.
+                                # See `ServerState` for more information and to add more states.
+                                peer_state_publisher.state = ServerState.ONLINE
+                            else:
+                                # TODO: Start Rendezvous
+                                # service = RendezvousService(host)
+                                pass
+
+                            await termination_event.wait()
+
+        finally:
+            # TODO: Publish peer state OFFLINE
+            # peer_state_publisher.state = ServerState.OFFLINE
+
+            logger.info("Server shutting down")
             nursery.cancel_scope.cancel()
-
-        print("Application shutdown complete")
