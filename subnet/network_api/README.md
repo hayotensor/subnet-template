@@ -1,6 +1,6 @@
 # P2P Network API Template
 
-This module provides a production-ready template for spanning a local REST API that acts as a bridge between your core P2P Node and separate local processes. 
+This module provides a production-ready template for spanning a REST API that acts as a bridge between your core P2P Node and separate local or remote processes. 
 
 It is designed for cases where you might have heavy workloads—such as AI inference tasks, external logic servers, or monitoring dashboards—that operate outside of the node but still need to invoke P2P protocols, query peer statuses, or publish consensus/gossip messages.
 
@@ -51,7 +51,7 @@ from subnet.network_api.network_api import NetworkApi, NetworkApiServer
 # (1) Construct your typical Network API
 network_api = NetworkApi(...)
 
-# (2) Bridge your P2P node with the local web API
+# (2) Bridge your P2P node with the web API
 api_server = NetworkApiServer(network_api, config="subnet/network_api/config.json")
 
 # Start your network and servers asynchronously in an event loop
