@@ -369,7 +369,6 @@ class MyServer(ServerBase):
             resource_manager=resource_manager,
             psk=psk,
             max_connections_per_peer=6,
-            enable_ping=True,
             enable_proof_of_stake=True,
             db=db,
             subnet_id=subnet_id,
@@ -614,11 +613,6 @@ Host features:
 - `peerstore_cleanup_interval`: seconds between peerstore cleanup runs.
 - `max_connections_per_peer`: connection cap applied to the host swarm.
 
-Built-in protocols:
-
-- `enable_ping`: register the ping stream handler.
-- `ping_protocol_id`: protocol ID for ping. Defaults to `/ipfs/ping/1.0.0`.
-
 Subnet and chain features:
 
 - `enable_proof_of_stake`: wrap secure transports with proof-of-stake checks.
@@ -702,17 +696,6 @@ When proof of stake is enabled:
 
 Use this when the network should reject peers that do not satisfy on-chain
 proof-of-stake checks.
-
-### `_set_builtin_stream_handlers(host)`
-
-Registers stream handlers owned by the template.
-
-Currently:
-
-- If `enable_ping=True`, registers `handle_ping` under `ping_protocol_id`.
-
-Application-specific handlers should not be added here. Register them in
-`ApplicationBase.setup`.
 
 ### `create_dht(host)`
 

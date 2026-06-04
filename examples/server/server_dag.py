@@ -1,3 +1,18 @@
+"""
+Example Merkle DAG application built on the subnet server template.
+
+This file shows how to add subnet-specific behavior with ``ApplicationBase``
+while ``ServerBase`` owns the shared libp2p lifecycle. The launcher in
+``examples/cli/run_server_dag_example.py`` prepares keys, databases, bootnode
+addresses, and the hypertensor client before creating ``Server``.
+
+Once the P2P network is ready, ``SubnetApplication`` attaches a
+``MerkleDagSyncProtocol`` and ``DagGossipSystem`` for ``PEER_STATE_TOPIC``.
+Non-bootstrap nodes first sync the DAG from connected peers, then use
+``PeerStateDagPublisher`` to sign and gossip peer-state DAG nodes through the
+mesh. Missing nodes can be fetched through the sync protocol, and shutdown
+publishes a final offline state before the server exits.
+"""
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -279,7 +294,6 @@ class Server(ServerBase):
             psk=psk,
             peerstore_db_path=peerstore_db_path,
             max_connections_per_peer=6,
-            enable_ping=True,
             enable_proof_of_stake=enable_proof_of_stake,
             db=db,
             subnet_id=subnet_id,

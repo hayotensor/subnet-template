@@ -280,7 +280,6 @@ class Server(ServerBase):
             psk=psk,
             peerstore_db_path=peerstore_db_path,
             max_connections_per_peer=6,
-            enable_ping=True,
             enable_proof_of_stake=enable_proof_of_stake,
             db=db,
             subnet_id=subnet_id,

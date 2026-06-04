@@ -155,7 +155,6 @@ class ServerBase:
         peerstore_db_path: str | None = None,
         peerstore_cleanup_interval: int = 60,
         max_connections_per_peer: int | None = 6,
-        enable_ping: bool = False,
         ping_protocol_id: TProtocol = PING_PROTOCOL_ID,
         enable_proof_of_stake: bool = False,
         db: Any | None = None,
@@ -198,7 +197,6 @@ class ServerBase:
         self.peerstore_db_path = peerstore_db_path
         self.peerstore_cleanup_interval = peerstore_cleanup_interval
         self.max_connections_per_peer = max_connections_per_peer
-        self.enable_ping = enable_ping
         self.ping_protocol_id = ping_protocol_id
         self.enable_proof_of_stake = enable_proof_of_stake
         self.db = db
@@ -333,10 +331,6 @@ class ServerBase:
             POS_PROTOCOL_ID: pos_noise_transport,
             TProtocol(secio.ID): pos_secio_transport,
         }
-
-    def _set_builtin_stream_handlers(self, host: IHost) -> None:
-        if self.enable_ping:
-            host.set_stream_handler(self.ping_protocol_id, handle_ping)
 
     def create_dht(self, host: IHost) -> KadDHT:
         """Create the DHT required for peer discovery."""
