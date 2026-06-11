@@ -70,7 +70,15 @@ class Telemetry:
         return public_key.verify(canonical_data, signature)
     """
 
-    def __init__(self, url: str, subnet_id: int, subnet_node_id: int, key_pair: KeyPair, max_queue: int = 1000):
+    def __init__(
+        self,
+        url: str,
+        subnet_id: int,
+        subnet_node_id: int,
+        key_pair: KeyPair,
+        max_queue: int = 1000,
+        log_level: int = logging.DEBUG
+    ):
         self.url = url
         self.subnet_id = subnet_id
         self.subnet_node_id = subnet_node_id
@@ -78,6 +86,7 @@ class Telemetry:
         self.peer_id = ID.from_pubkey(key_pair.public_key).to_string()
         self.hostname = socket.gethostname()
         self.max_queue = max_queue
+        self.log_level = log_level
 
         # Max queue size provides backpressure to the rest of the app
         self._send_channel, self._receive_channel = trio.open_memory_channel(max_queue)
@@ -108,22 +117,22 @@ class Telemetry:
                 async with open_websocket_url(self.url) as ws:
                     # Connection successful: reset backoff
                     if backoff > 1:
-                        logger.info("Telemetry reconnected to %s", self.url)
+                        logger.log(self.log_level, "Telemetry reconnected to %s", self.url)
                     backoff = 1
 
                     # 1. First, retry sending the message that failed previously
                     if pending_msg:
-                        logger.info("Retrying pending telemetry event %s", pending_msg.get("event"))
+                        logger.log(self.log_level, "Retrying pending telemetry event %s", pending_msg.get("event"))
                         await ws.send_message(self._dump_json(pending_msg))
-                        logger.info("Telemetry message sent: %s", pending_msg.get("event"))
+                        logger.log(self.log_level, "Telemetry message sent: %s", pending_msg.get("event"))
                         pending_msg = None
 
                     # 2. Now process incoming messages from the channel
                     async for msg in self._receive_channel:
                         pending_msg = msg
-                        logger.info("Attempting telemetry send: %s", msg.get("event"))
+                        logger.log(self.log_level, "Attempting telemetry send: %s", msg.get("event"))
                         await ws.send_message(self._dump_json(msg))
-                        logger.info("Telemetry message sent: %s", msg.get("event"))
+                        logger.log(self.log_level, "Telemetry message sent: %s", msg.get("event"))
 
                         # Clear only after successful transmission
                         pending_msg = None
