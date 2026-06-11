@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from examples.commit_reveal.consensus.scores import Scoring
 from examples.commit_reveal.dag import COMMIT_REVEAL_DAG_NAMESPACE, COMMIT_SCHEMA_ID, REVEAL_SCHEMA_ID
-from subnet.consensus.consensus_v2 import Consensus as BaseConsensus
+from subnet.consensus.consensus import Consensus as BaseConsensus
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.merkle_dag.interfaces import DagStorage
@@ -15,7 +15,7 @@ class Consensus(BaseConsensus):
     Consensus runner that swaps the base template scoring for commit-reveal DAG scoring.
 
     The lifecycle, validator election, proposal, and attestation behavior are inherited
-    from ``subnet.consensus.consensus_v2.Consensus``. Only ``self.scoring`` is replaced
+    from ``subnet.consensus.consensus.Consensus``. Only ``self.scoring`` is replaced
     so ``run_consensus`` submits scores derived from the previous epoch's commit/reveal
     DAG.
     """

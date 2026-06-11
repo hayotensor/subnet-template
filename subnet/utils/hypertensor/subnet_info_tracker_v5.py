@@ -53,7 +53,6 @@ class SubnetInfoTracker:
         subnet_id: int,
         subnet_slot: int,
         hypertensor: Hypertensor | LocalMockHypertensor | None = None,
-        updates_per_epoch: int = 1,
         start_fresh_epoch: bool = True,
         poll_interval: float = BLOCK_SECS,
         history_epochs: int = 3,
@@ -69,7 +68,6 @@ class SubnetInfoTracker:
         # interval knobs are kept only for constructor compatibility and failure
         # retry timing; explicit trigger_update/request_update can still refresh
         # sooner when another component knows the cache needs updating.
-        self.updates_per_epoch = 1
         self.retry_interval = max(float(BLOCK_SECS), poll_interval)
         self.history_epochs = max(1, history_epochs)
 

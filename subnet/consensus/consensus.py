@@ -1,6 +1,5 @@
 from dataclasses import asdict
 import logging
-from typing import List
 
 import trio
 
@@ -10,12 +9,11 @@ from subnet.consensus.utils import (
     did_node_attest,
     is_validator_or_attestor,
 )
-from subnet.hypertensor.chain_data import SubnetNodeConsensusData
-from subnet.hypertensor.chain_functions import Hypertensor, SubnetNodeClass
+from subnet.hypertensor.chain_functions import EpochData, Hypertensor, SubnetNodeClass
 from subnet.hypertensor.config import BLOCK_SECS
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.utils.db.database import RocksDB
-from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
+from subnet.utils.hypertensor.subnet_info_tracker_v5 import SubnetInfoTracker
 from subnet.utils.logging_config import configure_logging
 
 # Configure logging
@@ -53,6 +51,7 @@ class Consensus:
             return
         if not await self.run_is_node_validator():
             return
+        logger.info("Starting Consensus")
         await self.run_forever()
 
     def get_validator(self, epoch: int):
@@ -101,7 +100,9 @@ class Consensus:
                         break
                     else:
                         logger.info(
-                            f"Subnet ID {self.subnet_id} is not active (state: {subnet_info.state}), waiting for activation"
+                            "Subnet ID %s is not active (state: %s), waiting for activation",
+                            self.subnet_id,
+                            subnet_info.state,
                         )
 
                 last_epoch = current_epoch
@@ -171,81 +172,70 @@ class Consensus:
 
     async def run_forever(self):
         """
-        Loop until a new epoch to found, then run consensus logic
+        Listen for new subnet epochs from SubnetInfoTracker, then run consensus logic.
         """
         self._async_stop_event = trio.Event()
-        last_epoch = None
-        started = False
         logged_started = False
 
         logger.info("About to begin consensus")
 
-        while not self.stop.is_set() and not self._async_stop_event.is_set():
-            try:
-                subnet_epoch_data = self.hypertensor.get_epoch_data()
-                if subnet_epoch_data is None:
-                    logger.info("Waiting for subnet epoch data")
-                    await trio.sleep(BLOCK_SECS)
+        async with trio.open_nursery() as nursery:
+            if not self.subnet_info_tracker.is_running:
+                nursery.start_soon(self.subnet_info_tracker.run)
+
+            subnet_epoch_data = await self._wait_for_tracker_epoch_data()
+            if subnet_epoch_data is None:
+                nursery.cancel_scope.cancel()
+                return
+
+            last_epoch = subnet_epoch_data.epoch
+            logger.info(
+                "Current epoch is %s. Starting consensus on next epoch in %ss",
+                last_epoch,
+                self.subnet_info_tracker.get_seconds_remaining_until_next_epoch(),
+            )
+
+            async for epoch_data in self.subnet_info_tracker.watch_epoch_changes(
+                start_epoch=last_epoch,
+                stop_events=(self.stop, self._async_stop_event),
+            ):
+                if self.stop.is_set() or self._async_stop_event.is_set():
+                    break
+
+                current_epoch = epoch_data.epoch
+                if current_epoch == last_epoch:
                     continue
 
-                # Start on fresh epoch
-                if started is False:
-                    started = True
-                    subnet_epoch_data = self.hypertensor.get_subnet_epoch_data(
-                        self.subnet_info_tracker.get_subnet_slot()
-                    )
-                    logger.info(
-                        f"Current epoch is {subnet_epoch_data.epoch}.  "
-                        f"Starting consensus on next epoch in {subnet_epoch_data.seconds_remaining}s"
-                    )
-                    await trio.sleep(subnet_epoch_data.seconds_remaining)
-                elif not logged_started:
-                    logger.info("✅ Starting consensus")
+                if not logged_started:
+                    logger.info("Starting consensus")
                     logged_started = True
 
-                current_epoch = self.hypertensor.get_subnet_epoch_data(self.subnet_info_tracker.get_subnet_slot()).epoch
-
-                if current_epoch != last_epoch:
-                    """
-                    Add validation logic before and/or after `await run_consensus(current_epoch)`
-
-                    The logic here should be for qualifying nodes (proving work), generating scores, etc.
-                    """
-                    logger.info(f"🆕 Epoch {current_epoch}")
-                    last_epoch = current_epoch
-
-                    # Attest/Validate
-                    await self.run_consensus(current_epoch)
+                logger.info("New epoch %s", current_epoch)
+                last_epoch = current_epoch
 
                 try:
-                    # Get fresh epoch
-                    subnet_epoch_data = self.hypertensor.get_subnet_epoch_data(
-                        self.subnet_info_tracker.get_subnet_slot()
-                    )
+                    await self.run_consensus(current_epoch)
+                except Exception as e:
+                    logger.warning("Consensus failed on epoch %s: %s", current_epoch, e, exc_info=True)
+                    await trio.sleep(1.0)
 
-                    logger.info(
-                        f"Waiting for next epoch {current_epoch + 1} in {subnet_epoch_data.seconds_remaining} seconds"
-                    )
+            nursery.cancel_scope.cancel()
 
-                    with trio.move_on_after(
-                        max(
-                            0.0,
-                            subnet_epoch_data.seconds_remaining,
-                        )
-                    ):
-                        await self._async_stop_event.wait()
-                        break
+    async def _wait_for_tracker_epoch_data(self) -> EpochData | None:
+        while not self.stop.is_set() and not self._async_stop_event.is_set():
+            epoch_data = await self.subnet_info_tracker.get_epoch_data()
+            if epoch_data is not None:
+                return epoch_data
 
-                    if self._async_stop_event.is_set():
-                        break
+            logger.info("Waiting for subnet epoch data from SubnetInfoTracker")
+            self.subnet_info_tracker.request_update()
+            epoch_data = await self.subnet_info_tracker.wait_for_epoch_change(
+                stop_events=(self.stop, self._async_stop_event),
+            )
+            if epoch_data is not None:
+                return epoch_data
 
-                    pass  # Timeout reached
-                except Exception:
-                    logger.exception("Exception in epoch loop")
-                    pass
-            except Exception as e:
-                logger.warning(e, exc_info=True)
-                await trio.sleep(1.0)
+        return None
 
     async def run_consensus(self, current_epoch: int):
         """
@@ -393,7 +383,9 @@ class Consensus:
                         break
 
                     logger.info(
-                        f"✅ Elected validator ID {validator} data matches for epoch {current_epoch}, attesting their data"
+                        "Elected validator ID %s data matches for epoch %s, attesting their data",
+                        validator,
+                        current_epoch,
                     )
 
                     receipt = self.hypertensor.attest(self.subnet_id)

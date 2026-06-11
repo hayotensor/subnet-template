@@ -30,7 +30,7 @@ from multiaddr import Multiaddr
 import trio
 
 from subnet.config import GOSSIPSUB_PROTOCOL_ID
-from subnet.consensus.consensus_v2 import Consensus
+from subnet.consensus.consensus import Consensus
 from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.connections.bootstrap import connect_to_bootstrap_nodes
 from subnet.utils.connections.connection import (
@@ -45,11 +45,9 @@ from subnet.utils.pos.pos_transport import (
     POSTransport,
 )
 from subnet.utils.pos.proof_of_stake import ProofOfStake
-from subnet.utils.protocols.ping import handle_ping
 
 logger = logging.getLogger(__name__)
 
-PING_PROTOCOL_ID = TProtocol("/ipfs/ping/1.0.0")
 DHTProvideKey = str | bytes
 
 
@@ -155,7 +153,6 @@ class ServerBase:
         peerstore_db_path: str | None = None,
         peerstore_cleanup_interval: int = 60,
         max_connections_per_peer: int | None = 6,
-        ping_protocol_id: TProtocol = PING_PROTOCOL_ID,
         enable_proof_of_stake: bool = False,
         db: Any | None = None,
         subnet_id: int = 0,
@@ -197,7 +194,6 @@ class ServerBase:
         self.peerstore_db_path = peerstore_db_path
         self.peerstore_cleanup_interval = peerstore_cleanup_interval
         self.max_connections_per_peer = max_connections_per_peer
-        self.ping_protocol_id = ping_protocol_id
         self.enable_proof_of_stake = enable_proof_of_stake
         self.db = db
         self.subnet_id = subnet_id
@@ -234,7 +230,6 @@ class ServerBase:
         async with host.run(listen_addrs=listen_addrs), trio.open_nursery() as nursery:
             try:
                 nursery.start_soon(host.get_peerstore().start_cleanup_task, self.peerstore_cleanup_interval)
-                self._set_builtin_stream_handlers(host)
 
                 dht = self.create_dht(host)
                 async with background_trio_service(dht):
