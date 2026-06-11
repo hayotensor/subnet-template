@@ -704,12 +704,12 @@ async def disconnect_peers(
                 logger.debug(f"Failed to remove peer {peer_id}: {e}", exc_info=True)
 
 
-async def demonstrate_random_walk_discovery(dht: KadDHT, interval: int = 30) -> None:
+async def demonstrate_random_walk_discovery(dht: KadDHT, interval: int = 30, log_level: int = logging.DEBUG) -> None:
     """Demonstrate Random Walk peer discovery with periodic statistics."""
     while True:
-        logger.info(f"Routing table size: {dht.get_routing_table_size()}")
-        logger.info(f"Connected peers: {len(dht.host.get_connected_peers())}")
-        logger.info(f"Peerstore size: {len(dht.host.get_peerstore().peer_ids())}")
+        logger.log(log_level, f"Routing table size: {dht.get_routing_table_size()}")
+        logger.log(log_level, f"Connected peers: {len(dht.host.get_connected_peers())}")
+        logger.log(log_level, f"Peerstore size: {len(dht.host.get_peerstore().peer_ids())}")
 
         if dht.get_routing_table_size() > 0:
             logger.info("Peers in routing table:")

@@ -169,7 +169,7 @@ class ServerBase:
         telemetry: Telemetry | None = None,
         maintain_connections_log_level: int = logging.DEBUG,
         apply_libp2p_patches: bool = True,
-        log_level: int = logging.INFO,
+        log_level: int = logging.DEBUG,
     ) -> None:
         self.port = port
         self.application = application or ApplicationBase()
