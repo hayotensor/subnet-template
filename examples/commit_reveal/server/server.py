@@ -28,7 +28,13 @@ from subnet.protocols.dag_sync_protocol import (
     MerkleDagSyncProtocol,
     SyncProtocolPeerRequestClient,
 )
-from subnet.server.server_template import ApplicationBase, P2PNetworkContext, ServerBase
+from subnet.server.server_template import (
+    ApplicationBase,
+    ConsensusRunner,
+    ConsensusRuntime,
+    P2PNetworkContext,
+    ServerBase,
+)
 from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.db.database import RocksDB
 from subnet.utils.logging_config import configure_logging
@@ -47,7 +53,6 @@ class CommitRevealApplication(ApplicationBase):
         subnet_node_id: int,
         hypertensor: Hypertensor | LocalMockHypertensor,
         is_bootstrap: bool,
-        enable_consensus: bool,
         telemetry: Telemetry | None,
         dag_startup_sync_min_connected_peers: int,
         dag_startup_sync_timeout: float,
@@ -58,7 +63,6 @@ class CommitRevealApplication(ApplicationBase):
         cutoff_percent: float,
         gossip_receiver_log_level: int,
         publish_log_level: int,
-        skip_activate_subnet: bool,
     ) -> None:
         super().__init__()
         self.key_pair = key_pair
@@ -67,7 +71,6 @@ class CommitRevealApplication(ApplicationBase):
         self.subnet_node_id = subnet_node_id
         self.hypertensor = hypertensor
         self.is_bootstrap = is_bootstrap
-        self.enable_consensus = enable_consensus
         self.telemetry = telemetry
         self.dag_startup_sync_min_connected_peers = dag_startup_sync_min_connected_peers
         self.dag_startup_sync_timeout = dag_startup_sync_timeout
@@ -78,10 +81,8 @@ class CommitRevealApplication(ApplicationBase):
         self.cutoff_percent = cutoff_percent
         self.gossip_receiver_log_level = gossip_receiver_log_level
         self.publish_log_level = publish_log_level
-        self.skip_activate_subnet = skip_activate_subnet
         self.dag_system: DagGossipSystem | None = None
         self.publisher: CommitRevealDagPublisher | None = None
-        self.consensus: Consensus | None = None
 
     async def setup(self, context: P2PNetworkContext) -> None:
         if context.pubsub is None or context.gossipsub is None:
@@ -187,22 +188,7 @@ class CommitRevealApplication(ApplicationBase):
         )
         context.nursery.start_soon(self.publisher.run)
 
-        if self.enable_consensus:
-            if context.subnet_info_tracker is None:
-                raise RuntimeError("Commit-reveal consensus requires SubnetInfoTracker")
-            self.consensus = Consensus(
-                db=self.db,
-                subnet_id=self.subnet_id,
-                subnet_node_id=self.subnet_node_id,
-                subnet_info_tracker=context.subnet_info_tracker,
-                hypertensor=self.hypertensor,
-                skip_activate_subnet=self.skip_activate_subnet,
-            )
-            context.nursery.start_soon(self.consensus._main_loop)
-
     async def cleanup(self, context: P2PNetworkContext) -> None:
-        if self.consensus is not None:
-            await self.consensus.shutdown()
         logger.info("Commit-reveal application shutting down")
 
 
@@ -250,7 +236,6 @@ class Server(ServerBase):
             subnet_node_id=subnet_node_id,
             hypertensor=hypertensor,
             is_bootstrap=is_bootstrap,
-            enable_consensus=enable_consensus,
             telemetry=telemetry,
             dag_startup_sync_min_connected_peers=dag_startup_sync_min_connected_peers,
             dag_startup_sync_timeout=dag_startup_sync_timeout,
@@ -261,7 +246,6 @@ class Server(ServerBase):
             cutoff_percent=cutoff_percent,
             gossip_receiver_log_level=gossip_receiver_log_level,
             publish_log_level=publish_log_level,
-            skip_activate_subnet=skip_activate_subnet,
         )
 
         super().__init__(
@@ -288,7 +272,7 @@ class Server(ServerBase):
             hypertensor=hypertensor,
             is_bootstrap=is_bootstrap,
             enable_subnet_info_tracker=True,
-            enable_consensus=False,
+            enable_consensus=enable_consensus,
             log_random_walk=True,
             random_walk_log_interval=30,
             enable_connection_maintenance=True,
@@ -305,6 +289,7 @@ class Server(ServerBase):
         self.hypertensor = hypertensor
         self.db = db
         self.telemetry = telemetry
+        self.skip_activate_subnet = skip_activate_subnet
 
     async def run(self) -> None:
         try:
@@ -312,6 +297,19 @@ class Server(ServerBase):
             await super().run()
         finally:
             logger.info("Commit-reveal server shutting down")
+
+    def create_consensus(self, runtime: ConsensusRuntime) -> ConsensusRunner:
+        if self.consensus_factory is not None:
+            return self.consensus_factory(runtime)
+
+        return Consensus(
+            db=runtime.db,
+            subnet_id=runtime.subnet_id,
+            subnet_node_id=runtime.subnet_node_id,
+            subnet_info_tracker=runtime.subnet_info_tracker,
+            hypertensor=runtime.hypertensor,
+            skip_activate_subnet=self.skip_activate_subnet,
+        )
 
 
 __all__ = ["CommitRevealApplication", "Server"]

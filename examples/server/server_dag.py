@@ -29,6 +29,7 @@ from examples.dag.peer_state_dag_publisher import (
     PeerStateData,
     ServerState,
 )
+from subnet.consensus.consensus import Consensus
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.merkle_dag import Libp2pKeyPairSigner
@@ -39,7 +40,13 @@ from subnet.protocols.dag_sync_protocol import (
     MerkleDagSyncProtocol,
     SyncProtocolPeerRequestClient,
 )
-from subnet.server.server_template import ApplicationBase, P2PNetworkContext, ServerBase
+from subnet.server.server_template import (
+    ApplicationBase,
+    ConsensusRunner,
+    ConsensusRuntime,
+    P2PNetworkContext,
+    ServerBase,
+)
 from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.db.database import RocksDB
 from subnet.utils.logging_config import configure_logging
@@ -309,6 +316,7 @@ class Server(ServerBase):
             strict_maintain_connections=strict_maintain_connections,
             telemetry=telemetry,
             maintain_connections_log_level=maintain_connections_log_level,
+            **kwargs,
         )
 
         self.is_bootstrap = is_bootstrap
@@ -326,6 +334,18 @@ class Server(ServerBase):
             await super().run()
         finally:
             logger.info("Server shutting down")
+
+    def create_consensus(self, runtime: ConsensusRuntime) -> ConsensusRunner:
+        if self.consensus_factory is not None:
+            return self.consensus_factory(runtime)
+
+        return Consensus(
+            db=runtime.db,
+            subnet_id=runtime.subnet_id,
+            subnet_node_id=runtime.subnet_node_id,
+            subnet_info_tracker=runtime.subnet_info_tracker,
+            hypertensor=runtime.hypertensor,
+        )
 
 
 __all__ = ["Server", "SubnetApplication"]

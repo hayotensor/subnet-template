@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from functools import partial
 import logging
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from libp2p import new_host
 from libp2p.abc import IHost
@@ -30,7 +30,6 @@ from multiaddr import Multiaddr
 import trio
 
 from subnet.config import GOSSIPSUB_PROTOCOL_ID
-from subnet.consensus.consensus import Consensus
 from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.connections.bootstrap import connect_to_bootstrap_nodes
 from subnet.utils.connections.connection import (
@@ -49,6 +48,13 @@ from subnet.utils.pos.proof_of_stake import ProofOfStake
 logger = logging.getLogger(__name__)
 
 DHTProvideKey = str | bytes
+
+
+class ConsensusRunner(Protocol):
+    """Minimum consensus lifecycle contract required by ``ServerBase``."""
+
+    async def _main_loop(self) -> None:
+        """Run the consensus loop until it exits or the server nursery is cancelled."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +80,21 @@ class P2PNetworkContext:
     def stop(self) -> None:
         """Ask the server template to stop all app and network tasks."""
         self.termination_event.set()
+
+
+@dataclass(frozen=True, slots=True)
+class ConsensusRuntime:
+    """Dependencies available to a consensus factory at server startup time."""
+
+    db: Any
+    subnet_id: int
+    subnet_node_id: int
+    subnet_info_tracker: SubnetInfoTracker
+    hypertensor: Any
+    context: P2PNetworkContext
+
+
+ConsensusFactory = Callable[[ConsensusRuntime], ConsensusRunner]
 
 
 class ApplicationBase:
@@ -162,6 +183,7 @@ class ServerBase:
         is_bootstrap: bool = False,
         enable_subnet_info_tracker: bool = False,
         enable_consensus: bool = False,
+        consensus_factory: ConsensusFactory | None = None,
         log_random_walk: bool = False,
         random_walk_log_interval: int = 30,
         enable_connection_maintenance: bool = False,
@@ -204,7 +226,8 @@ class ServerBase:
         self.enable_subnet_info_tracker = enable_subnet_info_tracker
         self.subnet_info_tracker: SubnetInfoTracker | None = None
         self.enable_consensus = enable_consensus
-        self.consensus: Consensus | None = None
+        self.consensus_factory = consensus_factory
+        self.consensus: ConsensusRunner | None = None
         self.log_random_walk = log_random_walk
         self.random_walk_log_interval = random_walk_log_interval
         self.enable_connection_maintenance = enable_connection_maintenance
@@ -375,10 +398,10 @@ class ServerBase:
             await connect_to_bootstrap_nodes(host, list(self.bootstrap_addrs))
             logger.info("Connecting to bootstrap nodes complete")
 
-        logger.info("Adding peers to DHT routing table")
+        logger.debug("Adding peers to DHT routing table")
         for peer_id in host.get_peerstore().peer_ids():
             await dht.routing_table.add_peer(peer_id)
-        logger.info("Adding peers to DHT routing table complete")
+        logger.debug("Adding peers to DHT routing table complete")
 
     @staticmethod
     def _normalize_dht_provide_keys(
@@ -478,15 +501,32 @@ class ServerBase:
             raise RuntimeError("enable_consensus requires hypertensor")
 
         logger.info("Starting consensus")
-        self.consensus = Consensus(
+        runtime = ConsensusRuntime(
             db=self.db,
             subnet_id=self.subnet_id,
             subnet_node_id=self.subnet_node_id,
             subnet_info_tracker=subnet_info_tracker,
             hypertensor=self.hypertensor,
+            context=context,
         )
+        self.consensus = self.create_consensus(runtime)
         context.nursery.start_soon(self.consensus._main_loop)
         logger.info("Starting consensus complete")
+
+    def create_consensus(self, runtime: ConsensusRuntime) -> ConsensusRunner:
+        """Create the consensus runner used when ``enable_consensus=True``."""
+        if self.consensus_factory is not None:
+            return self.consensus_factory(runtime)
+
+        from subnet.consensus.consensus import Consensus
+
+        return Consensus(
+            db=runtime.db,
+            subnet_id=runtime.subnet_id,
+            subnet_node_id=runtime.subnet_node_id,
+            subnet_info_tracker=runtime.subnet_info_tracker,
+            hypertensor=runtime.hypertensor,
+        )
 
     def _start_connection_maintenance(self, context: P2PNetworkContext) -> None:
         if not self.enable_connection_maintenance:
@@ -550,4 +590,11 @@ class ServerBase:
         raise RuntimeError("SubnetInfoTracker is required but was not created")
 
 
-__all__ = ["ApplicationBase", "P2PNetworkContext", "ServerBase"]
+__all__ = [
+    "ApplicationBase",
+    "ConsensusFactory",
+    "ConsensusRunner",
+    "ConsensusRuntime",
+    "P2PNetworkContext",
+    "ServerBase",
+]

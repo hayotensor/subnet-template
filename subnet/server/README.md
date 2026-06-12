@@ -624,6 +624,7 @@ Subnet and chain features:
 - `is_bootstrap`: identifies bootstrap node behavior.
 - `enable_subnet_info_tracker`: force creation of `SubnetInfoTracker`.
 - `enable_consensus`: start consensus support.
+- `consensus_factory`: optional factory for creating a custom consensus runner.
 - `enable_connection_maintenance`: start a background connection maintainer.
 - `strict_maintain_connections`: if true, maintain peers against on-chain
   subnet info. If false, use basic peerstore-based maintenance.
@@ -833,8 +834,15 @@ Current behavior:
 - It requires `SubnetInfoTracker`.
 - It requires `db`.
 - It requires `hypertensor`.
-- It creates `Consensus(...)` and stores it as `self.consensus`.
+- It builds a `ConsensusRuntime`.
+- It creates a consensus runner with `create_consensus(runtime)` and stores it
+  as `self.consensus`.
 - It starts `self.consensus._main_loop` in the shared nursery.
+
+By default, `create_consensus` lazily imports and creates
+`subnet.consensus.consensus.Consensus`. Pass `consensus_factory` to
+`ServerBase` when an application needs to construct a consensus class from
+another module or pass extra application-specific dependencies.
 
 ### `_start_connection_maintenance(context)`
 
@@ -1277,7 +1285,37 @@ currently raises `NotImplementedError`.
 
 The current `_start_consensus` method returns early for bootstrap nodes. A node
 must have `enable_consensus=True` and `is_bootstrap=False` before the template
-creates `Consensus` and starts its main loop.
+creates a consensus runner and starts its main loop.
+
+### Custom Consensus Factory
+
+Use `consensus_factory` when the server should start consensus through the
+template lifecycle but the concrete class lives outside `subnet.consensus`.
+
+```python
+from my_project.consensus import MyConsensus
+from subnet.server.server_template import ConsensusRuntime
+
+
+def build_consensus(runtime: ConsensusRuntime) -> MyConsensus:
+    return MyConsensus(
+        db=runtime.db,
+        subnet_id=runtime.subnet_id,
+        subnet_node_id=runtime.subnet_node_id,
+        subnet_info_tracker=runtime.subnet_info_tracker,
+        hypertensor=runtime.hypertensor,
+    )
+
+
+server = ServerBase(
+    port=port,
+    key_pair=key_pair,
+    db=db,
+    hypertensor=hypertensor,
+    enable_consensus=True,
+    consensus_factory=build_consensus,
+)
+```
 
 ## Developer Checklist
 
