@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from libp2p.crypto.ed25519 import create_new_key_pair as create_ed25519_key_pair
 from libp2p.peer.id import ID
@@ -21,6 +23,8 @@ from subnet.merkle_dag import (
     NodeIngestResult,
     NodeIngestStatus,
 )
+from examples.dag.peer_state_dag_publisher import PeerRole, PeerStateData, ServerState
+from subnet.merkle_dag.bases.gossip_dag_receiver import DagGossipSubReceiver
 from subnet.merkle_dag.exceptions import TimestampValidationError
 from subnet.merkle_dag.sync_scheduler import SyncScheduler
 from subnet.merkle_dag.sync_service import MerkleDagSyncService
@@ -30,8 +34,6 @@ from subnet.protocols.dag_sync_protocol import (
     MerkleDagSyncProtocol,
     SyncProtocolPeerRequestClient,
 )
-from subnet.utils.dag.peer_state_dag_publisher import PeerRole, PeerStateData, ServerState
-from subnet.utils.pubsub.peer_status_gossip_receiver import PeerStatusGossipReceiver
 
 PEER_STATE_TOPIC="peer_state"
 
@@ -362,6 +364,27 @@ def _peer_state_node(node_id: str, peer_id: str, created_at_ms: int, multiaddr: 
     )
 
 
+def _receiver_for_node_gossip(db: DummyDB) -> DagGossipSubReceiver:
+    receiver = DagGossipSubReceiver.__new__(DagGossipSubReceiver)
+    receiver.db = db
+    receiver.telemetry = None
+    receiver.log_level = 10
+    return receiver
+
+
+def _peer_state_context(runtime: FakeReceiverRuntime, sync_scheduler: FakeSyncScheduler | None = None):
+    return SimpleNamespace(
+        topic=PEER_STATE_TOPIC,
+        namespace="peer-state",
+        config=SimpleNamespace(
+            latest_node_snapshot_db_key=PEER_STATE_TOPIC,
+            payload_schemas=(SimpleNamespace(schema_id="peer-state"),),
+        ),
+        runtime=runtime,
+        sync_scheduler=sync_scheduler,
+    )
+
+
 @pytest.mark.asyncio
 async def test_request_client_falls_back_to_other_known_peers_for_missing_nodes():
     serializer = CanonicalJSONSerializer()
@@ -443,14 +466,14 @@ def test_peer_state_data_round_trips_multiaddr():
         subnet_node_id=2,
         state=ServerState.ONLINE,
         role=PeerRole.VALIDATOR,
-        multiaddr=Multiaddr("/ip4/127.0.0.1/tcp/9002"),
+        multiaddr="/ip4/127.0.0.1/tcp/9002",
     )
 
     metadata = data.to_metadata()
     restored = PeerStateData.from_metadata(metadata)
 
     assert metadata["multiaddr"] == "/ip4/127.0.0.1/tcp/9002"
-    assert restored.multiaddr == Multiaddr("/ip4/127.0.0.1/tcp/9002")
+    assert restored.multiaddr == "/ip4/127.0.0.1/tcp/9002"
 
 
 @pytest.mark.asyncio
@@ -663,14 +686,10 @@ async def test_sync_protocol_list_known_peer_ids_skips_undialable_peerstore_entr
 
 @pytest.mark.asyncio
 async def test_peer_status_receiver_stores_latest_peer_state_in_plain_db():
-    remote_peer_id = _peer_id(10)
+    remote_peer = _peer_id_obj(10)
+    remote_peer_id = remote_peer.to_string()
     db = DummyDB()
-    receiver = PeerStatusGossipReceiver(
-        pubsub=None,  # type: ignore[arg-type]
-        termination_event=None,  # type: ignore[arg-type]
-        runtime=None,  # type: ignore[arg-type]
-        db=db,
-    )
+    receiver = _receiver_for_node_gossip(db)
 
     newer = DagNodeGossip(
         message_id="gossip-2",
@@ -686,9 +705,14 @@ async def test_peer_status_receiver_stores_latest_peer_state_in_plain_db():
         node=_peer_state_node("peer-state-1", remote_peer_id, 1000, "/ip4/127.0.0.1/tcp/9001"),
         created_at_ms=1000,
     )
+    runtime = FakeReceiverRuntime(
+        newer,
+        NodeIngestResult(node_id="peer-state-2", status=NodeIngestStatus.ACCEPTED),
+    )
+    context = _peer_state_context(runtime)
 
-    receiver._store_peer_state_snapshot(remote_peer_id, newer)
-    receiver._store_peer_state_snapshot(remote_peer_id, older)
+    await receiver._handle_node_gossip(context, remote_peer, newer)
+    await receiver._handle_node_gossip(context, remote_peer, older)
 
     assert db.get_all_under_key(PEER_STATE_TOPIC) == {
         remote_peer_id: {
@@ -726,21 +750,10 @@ async def test_peer_status_receiver_notifies_sync_scheduler_when_orphaned():
         ),
     )
     sync_scheduler = FakeSyncScheduler()
-    receiver = PeerStatusGossipReceiver(
-        pubsub=None,  # type: ignore[arg-type]
-        termination_event=trio.Event(),
-        runtime=runtime,  # type: ignore[arg-type]
-        db=DummyDB(),
-        sync_scheduler=sync_scheduler,  # type: ignore[arg-type]
-    )
+    receiver = _receiver_for_node_gossip(DummyDB())
+    context = _peer_state_context(runtime, sync_scheduler)
 
-    await receiver._handle_message(
-        rpc_pb2.Message(
-            from_id=remote_peer.to_bytes(),
-            data=b"encoded-node",
-            topicIDs=[PEER_STATE_TOPIC],
-        )
-    )
+    await receiver._handle_node_gossip(context, remote_peer, decoded)
 
     assert sync_scheduler.calls == [remote_peer_id]
     assert runtime.coordinator.fetch_calls == []
@@ -765,20 +778,10 @@ async def test_peer_status_receiver_fetches_missing_parents_inline_without_sched
             missing_parents=("missing-parent-inline",),
         ),
     )
-    receiver = PeerStatusGossipReceiver(
-        pubsub=None,  # type: ignore[arg-type]
-        termination_event=trio.Event(),
-        runtime=runtime,  # type: ignore[arg-type]
-        db=DummyDB(),
-    )
+    receiver = _receiver_for_node_gossip(DummyDB())
+    context = _peer_state_context(runtime)
 
-    await receiver._handle_message(
-        rpc_pb2.Message(
-            from_id=remote_peer.to_bytes(),
-            data=b"encoded-node",
-            topicIDs=[PEER_STATE_TOPIC],
-        )
-    )
+    await receiver._handle_node_gossip(context, remote_peer, decoded)
 
     assert runtime.coordinator.fetch_calls == [
         (remote_peer_id, ("missing-parent-inline",)),
@@ -797,20 +800,10 @@ async def test_peer_status_receiver_rejects_future_dated_node():
         created_at_ms=31_536_000_000,
     )
     runtime = FakeReceiverRuntime(decoded, TimestampValidationError("future timestamp"))
-    receiver = PeerStatusGossipReceiver(
-        pubsub=None,  # type: ignore[arg-type]
-        termination_event=trio.Event(),
-        runtime=runtime,  # type: ignore[arg-type]
-        db=DummyDB(),
-    )
+    receiver = _receiver_for_node_gossip(DummyDB())
+    context = _peer_state_context(runtime)
 
-    await receiver._handle_message(
-        rpc_pb2.Message(
-            from_id=remote_peer.to_bytes(),
-            data=b"encoded-node",
-            topicIDs=[PEER_STATE_TOPIC],
-        )
-    )
+    await receiver._handle_node_gossip(context, remote_peer, decoded)
 
     assert receiver.db.get_all_under_key(PEER_STATE_TOPIC) == {}
     assert runtime.coordinator.fetch_calls == []

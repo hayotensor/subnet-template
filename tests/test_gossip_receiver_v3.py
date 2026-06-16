@@ -16,6 +16,7 @@ from subnet.merkle_dag import (
     DagInventoryResponse,
     InMemoryDagStorage,
 )
+from subnet.merkle_dag.bases.gossip_dag_receiver import DagGossipSubReceiver, GossipDagTopicConfig
 from subnet.merkle_dag.models import DagSummary, PeerSyncState
 from subnet.merkle_dag.runtime import MerkleDagRuntime
 from subnet.merkle_dag.sync_service import MerkleDagSyncService
@@ -47,6 +48,9 @@ class DummyDB:
 
 class DummyPubsub:
     async def subscribe(self, topic: str):
+        return None
+
+    async def publish(self, topic: str, payload: bytes) -> None:
         return None
 
 
@@ -205,17 +209,21 @@ def _runtime(seed_byte: int, *, request_client=None) -> MerkleDagRuntime:
 @pytest.mark.asyncio
 async def test_receiver_delegates_matching_announcement():
     peer_id = _peer_id(1)
-    receiver = GossipReceiverV2(
-        gossipsub=None,  # type: ignore[arg-type]
+    receiver = DagGossipSubReceiver(
         pubsub=DummyPubsub(),  # type: ignore[arg-type]
         termination_event=trio.Event(),
         db=DummyDB(),  # type: ignore[arg-type]
-        payload_schemas=[CounterPayloadSchema()],
         local_peer_id=_peer_id(9),
-        namespace="shared",
-        dag_topic="dag-topic",
-        storage=InMemoryDagStorage(),
+        topics_config=[
+            GossipDagTopicConfig(
+                topic="dag-topic",
+                payload_schemas=[CounterPayloadSchema()],
+                namespace="shared",
+                storage=InMemoryDagStorage(),
+            )
+        ],
     )
+    context = receiver.context_for_topic("dag-topic")
     announcement = DagAnnouncement(
         message_id="announcement-1",
         namespace="shared",
@@ -226,13 +234,13 @@ async def test_receiver_delegates_matching_announcement():
     )
     message = rpc_pb2.Message(
         from_id=peer_id.to_bytes(),
-        data=receiver.codec.encode(announcement),
+        data=context.runtime.codec.encode(announcement),
         topicIDs=["dag-topic"],
     )
 
     await receiver._handle_message(message)
 
-    peer_state = await receiver.storage.get_peer_state(peer_id.to_string())
+    peer_state = await context.runtime.storage.get_peer_state(peer_id.to_string())
     assert peer_state is not None
     assert peer_state.summary.namespace == "shared"
     assert peer_state.summary.head_ids == ("head-1",)
@@ -241,17 +249,21 @@ async def test_receiver_delegates_matching_announcement():
 
 @pytest.mark.asyncio
 async def test_receiver_rejects_mismatched_sender_and_claimed_peer():
-    receiver = GossipReceiverV2(
-        gossipsub=None,  # type: ignore[arg-type]
+    receiver = DagGossipSubReceiver(
         pubsub=DummyPubsub(),  # type: ignore[arg-type]
         termination_event=trio.Event(),
         db=DummyDB(),  # type: ignore[arg-type]
-        payload_schemas=[CounterPayloadSchema()],
         local_peer_id=_peer_id(10),
-        namespace="shared",
-        dag_topic="dag-topic",
-        storage=InMemoryDagStorage(),
+        topics_config=[
+            GossipDagTopicConfig(
+                topic="dag-topic",
+                payload_schemas=[CounterPayloadSchema()],
+                namespace="shared",
+                storage=InMemoryDagStorage(),
+            )
+        ],
     )
+    context = receiver.context_for_topic("dag-topic")
     sender = _peer_id(2)
     claimed = _peer_id(3)
     announcement = DagAnnouncement(
@@ -264,13 +276,13 @@ async def test_receiver_rejects_mismatched_sender_and_claimed_peer():
     )
     message = rpc_pb2.Message(
         from_id=sender.to_bytes(),
-        data=receiver.codec.encode(announcement),
+        data=context.runtime.codec.encode(announcement),
         topicIDs=["dag-topic"],
     )
 
     await receiver._handle_message(message)
 
-    assert await receiver.storage.get_peer_state(sender.to_string()) is None
+    assert await context.runtime.storage.get_peer_state(sender.to_string()) is None
 
 
 @pytest.mark.asyncio

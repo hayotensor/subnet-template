@@ -5,15 +5,17 @@ from libp2p.crypto.ed25519 import create_new_key_pair
 from libp2p.peer.id import ID
 import trio
 
-from subnet.merkle_dag import InMemoryDagStorage, Libp2pKeyPairSigner
-from subnet.merkle_dag.bases.dag_gossip_system import DagGossipSystem, DagGossipTopicConfig
-from subnet.utils.dag.heartbeat_dag_publisher import HeartbeatDagPublisher, HeartbeatDagSchema
-from subnet.utils.dag.peer_state_dag_publisher import (
+from examples.dag.peer_state_dag_publisher import (
     PeerRole,
     PeerStateDagPublisher,
-    PeerStateDagSchema,
     PeerStateData,
     ServerState,
+)
+from subnet.merkle_dag import InMemoryDagStorage, Libp2pKeyPairSigner
+from subnet.merkle_dag.bases.dag_gossip_system import DagGossipSystem, DagGossipTopicConfig
+from subnet.merkle_dag.bases.dag_publisher_template import (
+    CallableDagPublisherTemplate,
+    DagPublisherTemplateSchema,
 )
 
 PEER_STATE_TOPIC="peer_state"
@@ -23,6 +25,7 @@ TEST_PEER_STATE_SCHEMA_ID = "peer-state"
 TEST_HEARTBEAT_SCHEMA_ID = "heartbeat"
 TEST_PEER_STATE_TOPIC = "peer-state-topic"
 TEST_HEARTBEAT_TOPIC = "heartbeat-topic"
+TEST_MULTIADDR = "/ip4/127.0.0.1/tcp/9001"
 
 
 class DummyPubsub:
@@ -77,7 +80,7 @@ def _build_dag_system(
             DagGossipTopicConfig(
                 topic="peer-state-dag",
                 namespace=TEST_DAG_NAMESPACE,
-                payload_schemas=[PeerStateDagSchema(TEST_SCHEMA_ID)],
+                payload_schemas=[DagPublisherTemplateSchema(TEST_SCHEMA_ID, PeerStateData)],
                 schema_id=TEST_SCHEMA_ID,
                 signer=Libp2pKeyPairSigner(key_pair),
                 author=local_peer_id.to_string(),
@@ -112,6 +115,7 @@ async def test_publish_stores_peer_state_in_metadata_and_gossips_heads():
         hypertensor=DummyHypertensor(epoch=7),
         schema_id=TEST_SCHEMA_ID,
         namespace=TEST_DAG_NAMESPACE,
+        multiaddr=TEST_MULTIADDR,
         termination_event=trio.Event(),
     )
 
@@ -121,8 +125,8 @@ async def test_publish_stores_peer_state_in_metadata_and_gossips_heads():
     node = await publisher.dag.get_node(result.node_id)
     assert node is not None
     assert "peer_id" not in node.body.payload
+    assert "kind" not in node.body.payload
     assert node.header.author == local_peer_id.to_string()
-    assert node.body.payload["kind"] == TEST_SCHEMA_ID
 
     state = PeerStateData.from_metadata(node.header.metadata)
     assert state.epoch == 7
@@ -130,6 +134,7 @@ async def test_publish_stores_peer_state_in_metadata_and_gossips_heads():
     assert state.subnet_node_id == 2
     assert state.state is ServerState.JOINING
     assert state.role is PeerRole.VALIDATOR
+    assert state.multiaddr == TEST_MULTIADDR
     assert db.get_nested(PEER_STATE_TOPIC, local_peer_id.to_string())["node_id"] == result.node_id
 
     assert len(pubsub.messages) == 1
@@ -160,6 +165,7 @@ async def test_publish_uses_dag_gossip_system_namespace_publish():
         hypertensor=DummyHypertensor(epoch=13),
         schema_id=TEST_SCHEMA_ID,
         namespace=TEST_DAG_NAMESPACE,
+        multiaddr=TEST_MULTIADDR,
         termination_event=trio.Event(),
     )
 
@@ -199,6 +205,7 @@ async def test_dag_system_peer_state_publisher_run_publishes_on_interval():
         hypertensor=DummyHypertensor(epoch=17),
         schema_id=TEST_SCHEMA_ID,
         namespace=TEST_DAG_NAMESPACE,
+        multiaddr=TEST_MULTIADDR,
         termination_event=termination_event,
         publish_interval_seconds=0.01,
     )
@@ -238,6 +245,7 @@ async def test_publish_links_new_status_to_shared_frontier():
         hypertensor=DummyHypertensor(epoch=9),
         schema_id=TEST_SCHEMA_ID,
         namespace=TEST_DAG_NAMESPACE,
+        multiaddr="/ip4/127.0.0.1/tcp/9002",
         termination_event=trio.Event(),
     )
     key_pair_b = create_new_key_pair(bytes([3]) * 32)
@@ -258,6 +266,7 @@ async def test_publish_links_new_status_to_shared_frontier():
         hypertensor=DummyHypertensor(epoch=9),
         schema_id=TEST_SCHEMA_ID,
         namespace=TEST_DAG_NAMESPACE,
+        multiaddr="/ip4/127.0.0.1/tcp/9003",
         termination_event=trio.Event(),
     )
 
@@ -270,7 +279,7 @@ async def test_publish_links_new_status_to_shared_frontier():
     assert first_b_node is not None
     assert first_b_node.header.parent_ids == (first_a.node_id,)
 
-    publisher_a.state = ServerState.ONLINE
+    publisher_a.update_state(ServerState.ONLINE)
     second_a = await publisher_a.publish()
 
     assert second_a is not None
@@ -278,14 +287,14 @@ async def test_publish_links_new_status_to_shared_frontier():
     assert second_a_node is not None
     assert second_a_node.header.parent_ids == (first_b.node_id,)
 
-    publisher_b.state = ServerState.ONLINE
+    publisher_b.update_state(ServerState.ONLINE)
     second_b = await publisher_b.publish()
     assert second_b is not None
 
     latest = await publisher_a.latest_local_peer_state()
     assert latest is not None
     assert latest.node_id == second_a.node_id
-    assert latest.state.state is ServerState.ONLINE
+    assert latest.data.state is ServerState.ONLINE
     assert db.get_nested(PEER_STATE_TOPIC, peer_a.to_string())["node_id"] == second_a.node_id
 
 
@@ -312,6 +321,7 @@ async def test_publish_skips_while_dag_has_unresolved_orphans():
         hypertensor=DummyHypertensor(epoch=11),
         schema_id=TEST_SCHEMA_ID,
         namespace=TEST_DAG_NAMESPACE,
+        multiaddr=TEST_MULTIADDR,
         termination_event=trio.Event(),
     )
 
@@ -347,7 +357,7 @@ async def test_peer_state_and_heartbeat_publish_into_one_general_dag_namespace()
             DagGossipTopicConfig(
                 topic=TEST_PEER_STATE_TOPIC,
                 namespace=TEST_DAG_NAMESPACE,
-                payload_schemas=[PeerStateDagSchema(TEST_PEER_STATE_SCHEMA_ID)],
+                payload_schemas=[DagPublisherTemplateSchema(TEST_PEER_STATE_SCHEMA_ID, PeerStateData)],
                 schema_id=TEST_PEER_STATE_SCHEMA_ID,
                 signer=Libp2pKeyPairSigner(key_pair),
                 author=local_peer_id.to_string(),
@@ -357,7 +367,7 @@ async def test_peer_state_and_heartbeat_publish_into_one_general_dag_namespace()
             DagGossipTopicConfig(
                 topic=TEST_HEARTBEAT_TOPIC,
                 namespace=TEST_DAG_NAMESPACE,
-                payload_schemas=[HeartbeatDagSchema(TEST_HEARTBEAT_SCHEMA_ID)],
+                payload_schemas=[DagPublisherTemplateSchema(TEST_HEARTBEAT_SCHEMA_ID)],
                 schema_id=TEST_HEARTBEAT_SCHEMA_ID,
                 signer=Libp2pKeyPairSigner(key_pair),
                 author=local_peer_id.to_string(),
@@ -375,16 +385,14 @@ async def test_peer_state_and_heartbeat_publish_into_one_general_dag_namespace()
         hypertensor=DummyHypertensor(epoch=19),
         schema_id=TEST_PEER_STATE_SCHEMA_ID,
         namespace=TEST_DAG_NAMESPACE,
+        multiaddr=TEST_MULTIADDR,
         termination_event=trio.Event(),
     )
-    heartbeat_publisher = HeartbeatDagPublisher(
+    heartbeat_publisher = CallableDagPublisherTemplate(
         dag_system=dag_system,
-        subnet_id=5,
-        subnet_node_id=7,
-        hypertensor=DummyHypertensor(epoch=19),
-        schema_id=TEST_HEARTBEAT_SCHEMA_ID,
         namespace=TEST_DAG_NAMESPACE,
-        termination_event=trio.Event(),
+        schema_id=TEST_HEARTBEAT_SCHEMA_ID,
+        payload_factory=lambda: {"epoch": 19, "subnet_id": 5, "subnet_node_id": 7},
     )
 
     peer_state_result = await peer_state_publisher.publish()

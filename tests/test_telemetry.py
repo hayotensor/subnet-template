@@ -1,10 +1,13 @@
 from dataclasses import dataclass
 import json
+import logging
 
 import pytest
 from libp2p.crypto.ed25519 import create_new_key_pair
 from pydantic import BaseModel
+from trio_websocket import HandshakeError
 
+import subnet.telemetry.telemetry as telemetry_module
 from subnet.telemetry.telemetry import Telemetry
 
 
@@ -32,15 +35,51 @@ class _PeerLike:
         return "peer-123"
 
 
-def test_emit_returns_false_when_queue_is_full(caplog: pytest.LogCaptureFixture) -> None:
-    telemetry = _build_telemetry(max_queue=1)
+class _StopTelemetry(Exception):
+    pass
 
-    assert telemetry.emit("first_event") is True
 
-    with caplog.at_level("WARNING"):
-        assert telemetry.emit("second_event") is False
+class _FakeExceptionGroup(Exception):
+    def __init__(self, exceptions: tuple[BaseException, ...]):
+        super().__init__("all attempts failed")
+        self.exceptions = exceptions
 
-    assert "Telemetry queue full (1); dropped event: second_event" in caplog.text
+
+@pytest.mark.trio
+async def test_run_logs_websocket_handshake_failure_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    telemetry = _build_telemetry()
+
+    class _FailingWebsocket:
+        async def __aenter__(self):
+            connect_error = OSError("all attempts to connect to 127.0.0.1:8080 failed")
+            connect_error.__cause__ = _FakeExceptionGroup((ConnectionRefusedError(111, "Connection refused"),))
+            raise HandshakeError from connect_error
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    def fail_open_websocket(url: str):
+        assert url == telemetry.url
+        return _FailingWebsocket()
+
+    async def stop_after_log(seconds: float) -> None:
+        raise _StopTelemetry
+
+    monkeypatch.setattr(telemetry_module, "open_websocket_url", fail_open_websocket)
+    monkeypatch.setattr(telemetry_module.trio, "sleep", stop_after_log)
+
+    with caplog.at_level(logging.ERROR, logger=telemetry_module.logger.name):
+        with pytest.raises(_StopTelemetry):
+            await telemetry.run()
+
+    assert "Telemetry unavailable at ws://127.0.0.1:8080/ingest" in caplog.text
+    assert "connection refused" in caplog.text
+    assert "Events will remain queued and delivery will retry in 1s" in caplog.text
+    assert "Traceback" not in caplog.text
+    assert "HandshakeError" not in caplog.text
 
 
 def test_build_payload_normalizes_values_before_queueing() -> None:

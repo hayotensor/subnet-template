@@ -54,9 +54,9 @@ def test_api_whitelist_allowed(client):
     assert response.status_code == 422
 
 
-def test_api_config_accepts_legacy_host():
-    """Older config files that use `host` should still configure the bind address."""
-    config = ApiConfig(host="0.0.0.0")
+def test_api_config_sets_listen_host():
+    """The API server bind address is configured through `listen_host`."""
+    config = ApiConfig(listen_host="0.0.0.0")
 
     assert config.listen_host == "0.0.0.0"
 

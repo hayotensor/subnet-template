@@ -58,8 +58,8 @@ async def test_api_protocol_unary_and_stream_v1():
     }
 
     # Set up API protocols
-    proto1 = ApiProtocol(host_a, config=ApiProtocolConfig(routes=api_routes))
-    ApiProtocol(host_b)
+    ApiProtocol(host_a, config=ApiProtocolConfig(routes=api_routes))
+    proto2 = ApiProtocol(host_b, config=ApiProtocolConfig())
 
     async with (
         host_a.run(listen_addrs=[Multiaddr("/ip4/127.0.0.1/tcp/0")]),
@@ -121,7 +121,7 @@ async def test_api_protocol_unary_and_stream_v1():
         from unittest.mock import patch
 
         with patch("subnet.protocols.api_protocol.httpx.AsyncClient", return_value=MockSession()):
-            response_bytes = await proto1.call_remote(
+            response_bytes = await proto2.call_remote(
                 destination=tcp_addr_a,
                 route="unary_test",
                 method="POST",
@@ -131,7 +131,7 @@ async def test_api_protocol_unary_and_stream_v1():
             print(f"Response: {response_bytes}")
 
             stream_chunks = []
-            async for chunk in proto1.stream_remote(
+            async for chunk in proto2.stream_remote(
                 destination=tcp_addr_a,
                 route="stream_test",
                 method="GET",

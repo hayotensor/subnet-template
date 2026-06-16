@@ -8,7 +8,7 @@ from typing import Any
 from libp2p.crypto.keys import KeyPair
 from libp2p.peer.id import ID
 import trio
-from trio_websocket import ConnectionClosed, open_websocket_url
+from trio_websocket import ConnectionClosed, HandshakeError, open_websocket_url
 
 # Standard logging configuration for production visibility
 logger = logging.getLogger(__name__)
@@ -99,7 +99,7 @@ class Telemetry:
         payload = self._build_payload(event, data)
         try:
             await self._send_channel.send(payload)
-        except trio.EndOfChannel:
+        except (trio.BrokenResourceError, trio.ClosedResourceError, trio.EndOfChannel):
             logger.warning("Telemetry channel closed; dropped event: %s", event)
 
     async def run(self) -> None:
@@ -137,10 +137,16 @@ class Telemetry:
                         # Clear only after successful transmission
                         pending_msg = None
 
-            except (ConnectionClosed, OSError) as e:
+            except (ConnectionClosed, HandshakeError, OSError) as e:
                 # We do not clear pending_msg here, so it will be retried on next connection.
                 wait_time = backoff
-                logger.error("Telemetry connection lost (%s). Retrying in %ds...", type(e).__name__, wait_time)
+                logger.error(
+                    "Telemetry unavailable at %s: %s. Events will remain queued and delivery will retry in %ds. "
+                    "Start the telemetry server or remove the telemetry URL to disable telemetry.",
+                    self.url,
+                    self._describe_connection_error(e),
+                    wait_time,
+                )
 
                 await trio.sleep(wait_time)
                 # Exponentially increase wait time up to max_backoff
@@ -181,6 +187,49 @@ class Telemetry:
             "data": self._normalize_value(data),
         }
         return self._sign_payload(payload)
+
+    def _describe_connection_error(self, exc: BaseException) -> str:
+        fallback: str | None = None
+
+        for chained_exc in self._iter_exception_chain(exc):
+            if isinstance(chained_exc, ConnectionRefusedError):
+                return "connection refused"
+            if isinstance(chained_exc, TimeoutError):
+                return "connection timed out"
+            if isinstance(chained_exc, OSError) and str(chained_exc) and fallback is None:
+                fallback = str(chained_exc)
+
+        if fallback:
+            return fallback
+
+        if isinstance(exc, HandshakeError):
+            return "websocket handshake failed"
+        if isinstance(exc, ConnectionClosed):
+            return "websocket connection closed"
+
+        message = str(exc)
+        if message:
+            return message
+        return type(exc).__name__
+
+    def _iter_exception_chain(self, exc: BaseException):
+        seen: set[int] = set()
+        pending: list[BaseException] = [exc]
+
+        while pending:
+            current = pending.pop(0)
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
+            yield current
+
+            grouped_exceptions = getattr(current, "exceptions", None)
+            if isinstance(grouped_exceptions, tuple):
+                pending.extend(item for item in grouped_exceptions if isinstance(item, BaseException))
+            if current.__cause__ is not None:
+                pending.append(current.__cause__)
+            if current.__context__ is not None:
+                pending.append(current.__context__)
 
     def _normalize_value(self, value: Any) -> Any:
         if value is None or isinstance(value, (bool, float, int, str)):

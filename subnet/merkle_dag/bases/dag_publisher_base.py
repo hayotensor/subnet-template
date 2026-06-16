@@ -14,6 +14,7 @@ from libp2p.pubsub.pubsub import Pubsub
 import trio
 
 from subnet.merkle_dag import DagAnnouncement, DagNodeGossip
+from subnet.merkle_dag.bases.constants import DEFAULT_DAG_TOPIC
 from subnet.merkle_dag.interfaces import DagStorage, PayloadSchema, Signer
 from subnet.merkle_dag.models import NodeIngestStatus
 from subnet.merkle_dag.runtime import MerkleDagRuntime
@@ -22,7 +23,6 @@ from subnet.utils.db.database import RocksDB
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DAG_TOPIC = "merkle_dag_sync"
 _MISSING = object()
 
 DagPayloadFactory: TypeAlias = Callable[["DagPublisher"], Awaitable[Any] | Any]

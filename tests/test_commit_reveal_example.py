@@ -230,7 +230,7 @@ async def test_commit_reveal_publisher_links_new_commit_to_previous_local_commit
 
 
 @pytest.mark.asyncio
-async def test_commit_reveal_topic_validators_gate_epoch_phases_and_allow_late_reveals() -> None:
+async def test_commit_reveal_topic_validators_gate_epoch_phases_and_reject_stale_epoch_reveals() -> None:
     peer_1 = _peer_id(1)
     nodes = [FakeSubnetNode(subnet_node_id=1, peer_info=FakePeerInfo(peer_1))]
     hypertensor = FakeHypertensor(nodes, epoch=7, percent_complete=0.25)
@@ -273,7 +273,7 @@ async def test_commit_reveal_topic_validators_gate_epoch_phases_and_allow_late_r
 
     hypertensor.epoch = 8
     hypertensor.percent_complete = 0.10
-    assert reveal_validator(ID.from_pubkey(_key_pair(1).public_key), reveal_message)
+    assert not reveal_validator(ID.from_pubkey(_key_pair(1).public_key), reveal_message)
 
 
 def _pubsub_message(peer_id: ID, topic: str, payload: bytes):

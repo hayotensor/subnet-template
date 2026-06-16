@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import logging
+import os
 from typing import Any
 
 import pytest
@@ -16,21 +17,35 @@ logger = logging.getLogger(__name__)
 
 
 LOCAL_RPC = "ws://127.0.0.1:9944"
+LOCAL_PRIVATE_KEY = "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
 
 # pytest tests/substrate/test_rpc.py -rP
 
-hypertensor = Hypertensor(
-    LOCAL_RPC,
-    "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133",
-    keypair_from=KeypairFrom.PRIVATE_KEY,
-    runtime_config=get_runtime_config(),
-)
+
+@pytest.fixture(scope="module")
+def hypertensor():
+    if os.environ.get("HYPERTENSOR_RUN_RPC_TESTS") != "1":
+        pytest.skip("requires a local Hypertensor RPC node; set HYPERTENSOR_RUN_RPC_TESTS=1 to run")
+
+    rpc_url = os.environ.get("HYPERTENSOR_RPC_URL", LOCAL_RPC)
+    private_key = os.environ.get("HYPERTENSOR_PRIVATE_KEY", LOCAL_PRIVATE_KEY)
+    try:
+        return Hypertensor(
+            rpc_url,
+            private_key,
+            keypair_from=KeypairFrom.PRIVATE_KEY,
+            runtime_config=get_runtime_config(),
+        )
+    except OSError as exc:
+        pytest.skip(f"Hypertensor RPC unavailable at {rpc_url}: {exc}")
+
+
 # hypertensor = Hypertensor(LOCAL_RPC, "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133", keypair_from=KeypairFrom.PRIVATE_KEY)
 
 # python -m pytest tests/hypertensor/test_rpc.py::test_get_subnet_info -rP
 
 
-def test_get_subnet_info():
+def test_get_subnet_info(hypertensor):
     rpc_runtime_config = RuntimeConfiguration()
     rpc_runtime_config.update_type_registry(load_type_registry_preset("legacy"))
     rpc_runtime_config.update_type_registry(custom_rpc_type_registry)
@@ -131,7 +146,7 @@ def test_get_subnet_info():
 # python -m pytest tests/hypertensor/test_rpc.py::test_get_subnet_node_info -rP
 
 
-def test_get_subnet_node_info():
+def test_get_subnet_node_info(hypertensor):
     rpc_runtime_config = RuntimeConfiguration()
     rpc_runtime_config.update_type_registry(load_type_registry_preset("legacy"))
     rpc_runtime_config.update_type_registry(custom_rpc_type_registry)
@@ -171,7 +186,7 @@ def test_get_subnet_node_info():
 # python -m pytest tests/hypertensor/test_rpc.py::test_get_subnet_node_info_formatted -rP
 
 
-def test_get_subnet_node_info_formatted():
+def test_get_subnet_node_info_formatted(hypertensor):
     subnet_node_info = hypertensor.get_formatted_get_subnet_node_info(128001, 1)
     print(subnet_node_info)
 
@@ -307,7 +322,7 @@ def test_get_subnet_node_info_formatted():
 # python -m pytest tests/hypertensor/test_rpc.py::test_get_bootnodes -rP
 
 
-def test_get_bootnodes():
+def test_get_bootnodes(hypertensor):
     rpc_runtime_config = RuntimeConfiguration()
     rpc_runtime_config.update_type_registry(load_type_registry_preset("legacy"))
     rpc_runtime_config.update_type_registry(custom_rpc_type_registry)
@@ -348,7 +363,7 @@ def test_get_bootnodes():
 # python -m pytest tests/hypertensor/test_rpc.py::test_get_all_overwatch_nodes_info -rP
 
 
-def test_get_all_overwatch_nodes_info():
+def test_get_all_overwatch_nodes_info(hypertensor):
     rpc_runtime_config = RuntimeConfiguration()
     rpc_runtime_config.update_type_registry(load_type_registry_preset("legacy"))
     rpc_runtime_config.update_type_registry(custom_rpc_type_registry)
@@ -389,7 +404,7 @@ def test_get_all_overwatch_nodes_info():
 # python -m pytest tests/hypertensor/test_rpc.py::test_get_all_overwatch_nodes_info_formatted -rP
 
 
-def test_get_all_overwatch_nodes_info_formatted():
+def test_get_all_overwatch_nodes_info_formatted(hypertensor):
     overwatch_nodes = hypertensor.get_all_overwatch_nodes_info_formatted()
     print("overwatch_nodes", overwatch_nodes)
 

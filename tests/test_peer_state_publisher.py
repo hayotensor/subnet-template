@@ -1,6 +1,6 @@
 import pytest
 
-from subnet.utils.pubsub.peer_state import (
+from examples.pubsub.peer_state.publisher import (
     PeerRole,
     PeerStateData,
     PeerStatePublisher,
