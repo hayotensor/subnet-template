@@ -13,7 +13,7 @@ from subnet.hypertensor.chain_functions import EpochData, Hypertensor, SubnetNod
 from subnet.hypertensor.config import BLOCK_SECS
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.utils.db.database import RocksDB
-from subnet.utils.hypertensor.subnet_info_tracker_v5 import SubnetInfoTracker
+from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
 from subnet.utils.logging_config import configure_logging
 
 # Configure logging

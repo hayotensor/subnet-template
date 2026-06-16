@@ -17,9 +17,9 @@ from subnet.merkle_dag import (
     RocksDBDagStorage,
     SHA256Hasher,
 )
+from subnet.merkle_dag.bases.dag_publisher_base import DEFAULT_DAG_TOPIC
 from subnet.merkle_dag.interfaces import DagStorage, GossipPublisher, PayloadSchema, PeerRequestClient
 from subnet.utils.db.database import RocksDB
-from subnet.utils.pubsub.topics import DEFAULT_DAG_TOPIC
 
 
 class MerkleDagRuntime:

@@ -7,8 +7,9 @@ from subnet.hypertensor.chain_functions import SubnetNodeClass
 from subnet.merkle_dag.models import DagNodeBody, DagNodeHeader
 from subnet.merkle_dag.storage_rocksdb import RocksDBDagStorage
 from subnet.utils.db.database import RocksDB
-from subnet.utils.pubsub.topics import HEARTBEAT_TOPIC, PEER_STATE_TOPIC
 
+PEER_STATE_TOPIC="peer_state"
+HEARTBEAT_TOPIC="heartbeat"
 
 class FakeHypertensor:
     def __init__(self, included_nodes):

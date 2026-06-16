@@ -7,7 +7,7 @@ from libp2p.peer.id import ID
 from libp2p.pubsub.pb import rpc_pb2
 import trio
 
-from subnet.utils.pubsub.templates.gossip_receiver_template import (
+from subnet.utils.pubsub.gossip_receiver_template import (
     GossipReceiverTemplate,
     GossipTopicConfig,
     allow_all_validator,

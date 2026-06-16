@@ -1,48 +1,22 @@
-"""CLI command to run a libp2p subnet server node."""
+"""CLI command to run a blank libp2p subnet server template node."""
 
 import argparse
 import logging
-import os
-from pathlib import Path
 import random
 import secrets
 import sys
-import time
 
-from dotenv import load_dotenv
-from libp2p.crypto.ed25519 import (
-    create_new_key_pair,
-)
-from libp2p.peer.id import ID as PeerID
-from substrateinterface import (
-    Keypair as SubstrateKeypair,
-    KeypairType,
-)
+from libp2p.crypto.ed25519 import create_new_key_pair
 import trio
 
-from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
-from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
-from subnet.server.server import Server
-from subnet.telemetry.telemetry import Telemetry
+from subnet.server.server_template import ApplicationBase, ServerBase
 from subnet.utils.crypto.store_key import get_key_pair
-from subnet.utils.db.database import RocksDB
 from subnet.utils.logging_config import configure_logging
 
-load_dotenv(os.path.join(Path.cwd(), ".env"))
-
-PHRASE = os.getenv("PHRASE")
-
-# Configure logging
 configure_logging()
 logger = logging.getLogger(__name__)
 
-
-def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Run a libp2p subnet node",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+RUN_NODE_EXAMPLES = r"""
 Examples:
 # Run locally with no RPC connection
 
@@ -56,9 +30,6 @@ python -m subnet.cli.run_node \
 --subnet_id 1 \
 --no_blockchain_rpc \
 --is_bootstrap \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
@@ -74,9 +45,6 @@ python -m subnet.cli.run_node \
 --subnet_id 1 \
 --subnet_node_id 1 \
 --no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
@@ -90,9 +58,6 @@ python -m subnet.cli.run_node \
 --subnet_id 1 \
 --subnet_node_id 2 \
 --no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
@@ -105,9 +70,6 @@ python -m subnet.cli.run_node \
 --subnet_id 1 \
 --subnet_node_id 3 \
 --no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
@@ -120,9 +82,6 @@ python -m subnet.cli.run_node \
 --subnet_id 1 \
 --subnet_node_id 4 \
 --no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
@@ -135,9 +94,6 @@ python -m subnet.cli.run_node \
 --subnet_id 1 \
 --subnet_node_id 5 \
 --no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
@@ -150,9 +106,6 @@ python -m subnet.cli.run_node \
 --subnet_id 1 \
 --subnet_node_id 6 \
 --no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
@@ -163,9 +116,6 @@ python -m subnet.cli.run_node \
 --subnet_id 1 \
 --subnet_node_id 7 \
 --no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
@@ -176,9 +126,6 @@ python -m subnet.cli.run_node \
 --subnet_id 1 \
 --subnet_node_id 8 \
 --no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
@@ -189,9 +136,6 @@ python -m subnet.cli.run_node \
 --subnet_id 1 \
 --subnet_node_id 9 \
 --no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
@@ -240,27 +184,28 @@ python -m subnet.cli.run_node \
 --subnet_node_id 3 \
 --tensor_private_key 0x51b7c50c1cd27de89a361210431e8f03a7ddda1a0c8c5ff4e4658ca81ac02720 \
 --local_rpc
+"""
 
-        """,
+
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Run a blank libp2p subnet template node",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=RUN_NODE_EXAMPLES,
     )
 
     parser.add_argument(
         "--mode",
         default="server",
-        help="Run as a server or client node",
+        help="[Deprecated] Accepted for compatibility; the blank template always runs as a server.",
     )
     parser.add_argument(
         "--ip",
         type=str,
         default=None,
-        help=(
-            "IP to listen on. "
-            "For local testing this is not required. "
-            "For live testing, this should default to local private IP if behind NAT. "
-            "For live testing, this should default to public IP if not behind NAT. "
-        ),
+        help="IP to listen on. If omitted, the node listens on available interfaces.",
     )
-
     parser.add_argument(
         "--port",
         type=int,
@@ -271,155 +216,71 @@ python -m subnet.cli.run_node \
         "--bootstrap",
         type=str,
         nargs="*",
-        help=(
-            "Multiaddrs of bootstrap nodes. "
-            "Provide a space-separated list of addresses. "
-            "This is required for client mode."
-        ),
+        help="Multiaddrs of bootstrap nodes. Provide a space-separated list of addresses.",
     )
-
     parser.add_argument(
         "--is_bootstrap",
         action="store_true",
-        help="Start a bootnode/bootstrap node that doesn't publish messages or run consensus. ",
+        help="Accepted for compatibility; blank template nodes do not run subnet use-case logic.",
     )
-
-    parser.add_argument("--base_path", type=str, default=None, help="Specify custom base path")
-
+    parser.add_argument(
+        "--base_path",
+        type=str,
+        default=None,
+        help="[Deprecated] Accepted for compatibility; the blank template does not open an app database.",
+    )
     parser.add_argument(
         "--peerstore_db_path",
         type=str,
         default=None,
-        help="[Currently not in use] Specify persistent peerstore db path",
+        help="[Currently not in use] Persistent peerstore is not implemented.",
     )
 
-    parser.add_argument(
-        "--disable_pubsub_validator",
-        action="store_true",
-        help="Disable pubsub validator",
-    )
+    # Legacy subnet-application flags. They remain accepted so existing scripts can
+    # keep invoking run_node while the command runs only the reusable template.
+    parser.add_argument("--disable_pubsub_validator", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--disable_consensus", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--disable_proof_of_stake", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--disable_strict_maintain_connections", action="store_true", help=argparse.SUPPRESS)
 
-    parser.add_argument(
-        "--disable_consensus",
-        action="store_true",
-        help="Disable consensus",
-    )
-
-    parser.add_argument(
-        "--disable_proof_of_stake",
-        action="store_true",
-        help="Disable proof of stake",
-    )
-
-    parser.add_argument(
-        "--disable_strict_maintain_connections",
-        action="store_true",
-        help="Disable strictly maintain connections",
-    )
-
-    # Host specific arguments
-    parser.add_argument(
-        "--enable_mDNS",
-        action="store_true",
-        help="Enable mDNS discovery",
-    )
-    parser.add_argument(
-        "--enable_upnp",
-        action="store_true",
-        help="Enable UPnP discovery",
-    )
-    parser.add_argument(
-        "--enable_autotls",
-        action="store_true",
-        help="Enable AutoTLS",
-    )
-    parser.add_argument(
-        "--psk",
-        type=str,
-        default=None,
-        help="Pre-shared key for libp2p",
-    )
-
-    parser.add_argument(
-        "--heartbeat_validator_log_level",
-        type=int,
-        default=logging.DEBUG,
-        help="Log level for heartbeat validator. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
-    )
-    parser.add_argument(
-        "--gossip_receiver_log_level",
-        type=int,
-        default=logging.DEBUG,
-        help="Log level for gossip receiver. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
-    )
-    parser.add_argument(
-        "--publish_heartbeat_log_level",
-        type=int,
-        default=logging.DEBUG,
-        help="Log level for publish heartbeat. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
-    )
     parser.add_argument(
         "--maintain_connections_log_level",
         type=int,
         default=logging.DEBUG,
-        help="Log level for maintain connections. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
+        help="Log level for optional template connection maintenance. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR",
     )
+
+    # Host specific arguments.
+    parser.add_argument("--enable_mDNS", action="store_true", help="Enable mDNS discovery")
+    parser.add_argument("--enable_upnp", action="store_true", help="Enable UPnP discovery")
+    parser.add_argument("--enable_autotls", action="store_true", help="Enable AutoTLS")
+    parser.add_argument("--psk", type=str, default=None, help="Pre-shared key for libp2p")
 
     parser.add_argument(
         "--private_key_path",
         type=str,
         default=None,
-        help="Path to the private key file for peer ID. ",
+        help="Path to the private key file for peer ID.",
     )
-
-    parser.add_argument("--subnet_id", type=int, default=0, help="Subnet ID this node belongs to. ")
-
+    parser.add_argument(
+        "--subnet_id",
+        type=int,
+        default=0,
+        help="[Deprecated] Accepted for compatibility; blank template nodes do not use a subnet ID.",
+    )
     parser.add_argument(
         "--subnet_node_id",
         type=int,
         default=0,
-        help="Subnet node ID this node belongs to. This ID was logged on registration.",
+        help="[Deprecated] Accepted for compatibility; blank template nodes do not use a subnet node ID.",
     )
-
-    parser.add_argument("--no_blockchain_rpc", action="store_true", help="[Testing] Run with no RPC")
-
-    # Seed data for local db when using `--no_blockchain_rpc`
-    parser.add_argument(
-        "--insert_mock_overwatch_node", action="store_true", help="[Testing] Insert mock overwatch node"
-    )
-
-    parser.add_argument(
-        "--local_rpc",
-        action="store_true",
-        help="[Testing] Run in local RPC mode, uses LOCAL_RPC",
-    )
-
-    parser.add_argument(
-        "--tensor_private_key",
-        type=str,
-        required=False,
-        help="Hypertensor blockchain private key, the pk of the hotkey used for consensus extinsics",
-    )
-
-    parser.add_argument(
-        "--phrase",
-        type=str,
-        required=False,
-        help="Coldkey phrase that controls actions which include funds, such as registering, and staking",
-    )
-
-    parser.add_argument(
-        "--telemetry_url",
-        type=str,
-        required=False,
-        help="Telemetry URL for Prometheus",
-    )
-
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose logging",
-    )
+    parser.add_argument("--no_blockchain_rpc", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--insert_mock_overwatch_node", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--local_rpc", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--tensor_private_key", type=str, required=False, help=argparse.SUPPRESS)
+    parser.add_argument("--phrase", type=str, required=False, help=argparse.SUPPRESS)
+    parser.add_argument("--telemetry_url", type=str, required=False, help=argparse.SUPPRESS)
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
     return parser.parse_args()
 
@@ -428,22 +289,26 @@ def main() -> None:
     """Main entry point for the CLI."""
     args = parse_args()
 
-    # Set logging level
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-    else:
-        logging.getLogger().setLevel(logging.INFO)
+    logging.getLogger().setLevel(logging.DEBUG if args.verbose else logging.INFO)
 
-    # Log startup information
-    logger.info("Starting libp2p subnet server node...")
+    if args.mode != "server":
+        logger.warning("Ignoring mode=%s; blank template run_node always runs a server", args.mode)
+    if args.base_path is not None:
+        logger.info("Ignoring --base_path; blank template run_node does not open an app database")
+    if args.peerstore_db_path is not None:
+        logger.warning("Ignoring --peerstore_db_path; persistent peerstore is not implemented")
+    if args.telemetry_url is not None:
+        logger.info("Ignoring --telemetry_url; blank template run_node has no telemetry-producing application")
+
+    logger.info("Starting blank libp2p subnet template node...")
 
     port = args.port
     if port <= 0:
         port = random.randint(10000, 60000)
-    logger.debug(f"Using port: {port}")
+    logger.info("Using port: %s", port)
 
     if args.bootstrap:
-        logger.info(f"Bootstrap peers: {args.bootstrap}")
+        logger.info("Bootstrap peers: %s", args.bootstrap)
     else:
         logger.info("Running as standalone node (no bootstrap peers)")
 
@@ -452,184 +317,41 @@ def main() -> None:
     else:
         key_pair = get_key_pair(args.private_key_path)
 
-    if not args.base_path:
-        if args.is_bootstrap:
-            base_path = "/tmp/bootstrap"
-        else:
-            base_path = f"/tmp/{random.randint(100, 1000000)}"
-    else:
-        base_path = args.base_path
-
-    db = RocksDB(base_path)
-
-    telemetry = None
-    if args.telemetry_url:
-        logger.info(f"Telemetry events starting at URL: {args.telemetry_url}")
-        telemetry = Telemetry(args.telemetry_url, args.subnet_id, args.subnet_node_id, key_pair)
-
-    hotkey = None
-    start_epoch = None
-
-    if not args.no_blockchain_rpc:
-        if args.local_rpc:
-            rpc = os.getenv("LOCAL_RPC")
-        else:
-            rpc = os.getenv("DEV_RPC")
-
-        if args.phrase is not None:
-            hypertensor = Hypertensor(rpc, args.phrase)
-            substrate_keypair = SubstrateKeypair.create_from_mnemonic(args.phrase, crypto_type=KeypairType.ECDSA)
-            hotkey = substrate_keypair.ss58_address
-            logger.info(f"hotkey: {hotkey}")
-        elif args.tensor_private_key is not None:
-            hypertensor = Hypertensor(rpc, args.tensor_private_key, KeypairFrom.PRIVATE_KEY)
-            substrate_keypair = SubstrateKeypair.create_from_private_key(
-                args.tensor_private_key, crypto_type=KeypairType.ECDSA
-            )
-            hotkey = substrate_keypair.ss58_address
-            logger.info(f"hotkey: {hotkey}")
-        else:
-            # Default to using PHRASE if no other options are provided
-            hypertensor = Hypertensor(rpc, PHRASE)
-
-        if args.subnet_id < 128000:
-            real_subnet_id = hypertensor.get_subnet_id_from_friendly_id(args.subnet_id)
-            logger.info(
-                "Subnet ID %s is less than 128000 and likely a friendly ID, using real subnet ID %s",
-                args.subnet_id,
-                real_subnet_id,
-            )
-            args.subnet_id = int(str(real_subnet_id))
-
-        if not args.is_bootstrap:
-            if hotkey is not None:
-                result = hypertensor.interface.query("System", "Account", [hotkey])
-                balance = result.value["data"]["free"]
-                assert balance >= 500, (
-                    f"Hotkey must have at least 0.0000000000000005 TENSOR to be a live account, balance is {float(balance / 1e18)}"  # noqa: E501
-                )
-
-            # Check subnet node exists
-            subnet_node_info = hypertensor.get_formatted_get_subnet_node_info(args.subnet_id, args.subnet_node_id)
-            if subnet_node_info is None:
-                raise Exception("Subnet node does not exist")
-
-            if subnet_node_info.hotkey.lower() != hotkey.lower():
-                raise Exception(
-                    f"Subnet node hotkey does not match. Expected: {subnet_node_info.hotkey}, Actual: {hotkey}"
-                )
-
-            local_peer_id = PeerID.from_pubkey(key_pair.public_key)
-
-            if not local_peer_id.__eq__(subnet_node_info.peer_info.peer_id):
-                logger.warning(
-                    "Subnet node peer ID does not match. This can be ignored if running a bootnode or client peer. "
-                    f"Expected: {subnet_node_info.peer_info.peer_id}, Actual: {local_peer_id.to_string()}"  # noqa: E501
-                )
-
-            if subnet_node_info.bootnode_peer_info:
-                if not local_peer_id.__eq__(subnet_node_info.bootnode_peer_info.peer_id):
-                    logger.warning(
-                        "Subnet node bootnode peer ID does not match. This can be ignored if you're not running a bootnode. "  # noqa: E501
-                        f"Expected: {subnet_node_info.bootnode_peer_info.peer_id}, Actual: {local_peer_id.to_string()}"  # noqa: E501
-                    )
-
-            if subnet_node_info.client_peer_info:
-                if not local_peer_id.__eq__(subnet_node_info.client_peer_info.peer_id):
-                    logger.warning(
-                        "Subnet node client peer ID does not match. This can be ignored if you're not running a client peer. "  # noqa: E501
-                        f"Expected: {subnet_node_info.client_peer_info.peer_id}, Actual: {local_peer_id.to_string()}"  # noqa: E501
-                    )
-
-            start_epoch = subnet_node_info.classification["start_epoch"]
-            if start_epoch is None:
-                raise Exception("Subnet node start epoch is None")
-    else:
-        # Run mock hypertensor blockchain for testing
-        # This is a shared database between all local nodes
-        hypertensor = LocalMockHypertensor(
-            subnet_id=args.subnet_id,
-            peer_id=PeerID.from_pubkey(key_pair.public_key),
-            subnet_node_id=args.subnet_node_id if not args.is_bootstrap else 0,
-            coldkey="",
-            hotkey="",
-            bootnode_peer_id="",
-            client_peer_id="",
-            reset_db=True if not args.bootstrap else False,
-            insert_mock_overwatch_node=True if not args.bootstrap and args.insert_mock_overwatch_node else False,
-        )
-
-    slot = hypertensor.get_subnet_slot(args.subnet_id)
-    slot = int(str(slot))
-
-    # Wait to start the node until the node is fully registered on-chain
-    # NOTE: Once a node registers on-chain, it will not be considered fully registered to other nodes
-    # until the following epoch to ensure it starts on a fresh epoch.
-    if start_epoch is not None:
-        subnet_epoch_data = hypertensor.get_subnet_epoch_data(slot)
-        current_epoch = subnet_epoch_data.epoch
-        logger.info(f"Current epoch is {current_epoch}")
-        if current_epoch < start_epoch:
-            logger.info(
-                "Keep this running and the node will automatically join the subnet once it's fully registered on-chain"
-            )
-            logger.info(f"Subnet node start epoch is {start_epoch}")
-            while current_epoch < start_epoch:
-                subnet_epoch_data = hypertensor.get_subnet_epoch_data(slot)
-                current_epoch = subnet_epoch_data.epoch
-                logger.info(f"Current epoch is {current_epoch}")
-                if current_epoch >= start_epoch:
-                    break
-
-                seconds_remaining = subnet_epoch_data.seconds_remaining
-                logger.info(
-                    f"Checking next epoch to see if we can join the subnet, sleeping for {seconds_remaining} seconds"
-                )
-                time.sleep(seconds_remaining)
-        logger.info("Subnet node is about to join the subnets DHT")
-
     try:
-        server = Server(
-            ip=args.ip,
+        server = ServerBase(
+            ip=args.ip or "0.0.0.0",
             port=port,
-            peerstore_db_path=None,  # TODO: Libp2p persistent peerstore needs work to be implemented
-            bootstrap_addrs=args.bootstrap,
+            application=ApplicationBase(),
             key_pair=key_pair,
-            db=db,
-            subnet_id=args.subnet_id,
-            subnet_node_id=args.subnet_node_id,
-            hypertensor=hypertensor,
-            is_bootstrap=args.is_bootstrap,
-            enable_pubsub_validator=not args.disable_pubsub_validator,
-            enable_consensus=not args.disable_consensus,
-            enable_proof_of_stake=not args.disable_proof_of_stake,
-            strict_maintain_connections=not args.disable_strict_maintain_connections,
+            bootstrap_addrs=args.bootstrap,
+            use_available_interfaces=args.ip is None,
+            enable_pubsub=False,
+            enable_random_walk=True,
             enable_mDNS=args.enable_mDNS,
             enable_upnp=args.enable_upnp,
             enable_autotls=args.enable_autotls,
-            resource_manager=None,  # TODO: Libp2p resource manager needs work to be implemented
             psk=args.psk,
-            telemetry=telemetry,
-            heartbeat_validator_log_level=args.heartbeat_validator_log_level,
-            gossip_receiver_log_level=args.gossip_receiver_log_level,
-            publish_heartbeat_log_level=args.publish_heartbeat_log_level,
+            peerstore_db_path=None,
+            max_connections_per_peer=6,
+            enable_proof_of_stake=False,
+            subnet_id=args.subnet_id,
+            subnet_node_id=args.subnet_node_id,
+            is_bootstrap=args.is_bootstrap,
+            enable_subnet_info_tracker=False,
+            enable_consensus=False,
+            log_random_walk=args.verbose,
+            enable_connection_maintenance=False,
+            strict_maintain_connections=False,
             maintain_connections_log_level=args.maintain_connections_log_level,
+            log_level=logging.DEBUG if args.verbose else logging.INFO,
         )
         trio.run(server.run)
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down...")
         sys.exit(0)
-    except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
+    except Exception as exc:
+        logger.error("Fatal error: %s", exc, exc_info=True)
         sys.exit(1)
-    finally:
-        if isinstance(hypertensor, LocalMockHypertensor):
-            try:
-                # Delete subnet node from mock db if it was created
-                hypertensor.db.delete_subnet_node(args.subnet_id, args.subnet_node_id)
-                logger.info("Removed subnet node from mock db")
-            except Exception as e:
-                logger.error(f"Failed to delete subnet node from mock db: {e}")
 
 
 if __name__ == "__main__":

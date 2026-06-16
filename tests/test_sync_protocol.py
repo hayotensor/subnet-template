@@ -32,7 +32,8 @@ from subnet.protocols.dag_sync_protocol import (
 )
 from subnet.utils.dag.peer_state_dag_publisher import PeerRole, PeerStateData, ServerState
 from subnet.utils.pubsub.peer_status_gossip_receiver import PeerStatusGossipReceiver
-from subnet.utils.pubsub.topics import PEER_STATE_TOPIC
+
+PEER_STATE_TOPIC="peer_state"
 
 
 class DummyDB:

@@ -29,6 +29,7 @@ from examples.dag.peer_state_dag_publisher import (
     PeerStateData,
     ServerState,
 )
+from examples.server.config import PEER_STATE_TOPIC
 from subnet.consensus.consensus import Consensus
 from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
@@ -50,7 +51,6 @@ from subnet.server.server_template import (
 from subnet.telemetry.telemetry import Telemetry
 from subnet.utils.db.database import RocksDB
 from subnet.utils.logging_config import configure_logging
-from subnet.utils.pubsub.topics import PEER_STATE_TOPIC
 
 configure_logging()
 logger = logging.getLogger("server_example/1.0.0")

@@ -1,4 +1,4 @@
-"""CLI command to run a libp2p subnet server node."""
+"""CLI command to run the basic pubsub-only example server node."""
 
 import argparse
 import logging
@@ -20,7 +20,7 @@ from substrateinterface import (
 )
 import trio
 
-from examples.server.server_dag import Server
+from examples.basic_server.server import Server
 from subnet.hypertensor.chain_functions import Hypertensor, KeypairFrom
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.telemetry.telemetry import Telemetry
@@ -40,17 +40,15 @@ logger = logging.getLogger(__name__)
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Run a libp2p subnet node",
+        description="Run a basic pubsub-only example subnet node",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
 # Run locally with no RPC connection
 
-# Start bootnode (or start bootnode through `run_bootnode`)
+# Start bootnode
 
-# 12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
-
-python -m examples.cli.run_server_dag_example \
+python -m examples.cli.run_basic_server \
 --private_key_path bootnode.key \
 --port 38960 \
 --subnet_id 1 \
@@ -60,7 +58,7 @@ python -m examples.cli.run_server_dag_example \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
---base_path /tmp/bootstrap \
+--base_path /tmp/basic-bootstrap \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
 
@@ -68,7 +66,7 @@ python -m examples.cli.run_server_dag_example \
 
 # 12D3KooWMwW1VqH7uWtUc5UGoyMJp1dG26Nkosc6RkRJ7RNiW6Cb
 
-python -m examples.cli.run_server_dag_example \
+python -m examples.cli.run_basic_server \
 --private_key_path alith.key \
 --port 38961 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
@@ -79,29 +77,28 @@ python -m examples.cli.run_server_dag_example \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
---base_path /tmp/alith \
+--base_path /tmp/basic-alith \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
 # 12D3KooWM5J4zS17XR2LHGZgRpmzbeqg4Eibyq8sbRLwRuWxJqsV
 
-python -m examples.cli.run_server_dag_example \
+python -m examples.cli.run_basic_server \
 --private_key_path baltathar.key \
---ip 127.0.0.1 \
---port 38962 \
+--port 38961 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
 --subnet_id 1 \
---subnet_node_id 2 \
+--subnet_node_id 1 \
 --no_blockchain_rpc \
 --heartbeat_validator_log_level 20 \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
---base_path /tmp/baltathar \
+--base_path /tmp/basic-baltathar \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
-# 12D3KooWKxAhu5U8SreDZpokVkN6ciTBbsHxteo3Vmq6Cpuf8KEt
+12D3KooWKxAhu5U8SreDZpokVkN6ciTBbsHxteo3Vmq6Cpuf8KEt
 
-python -m examples.cli.run_server_dag_example \
+python -m examples.cli.run_basic_server \
 --private_key_path charleth.key \
 --port 38963 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
@@ -112,12 +109,12 @@ python -m examples.cli.run_server_dag_example \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
---base_path /tmp/charleth \
+--base_path /tmp/basic-charleth \
 --telemetry_url ws://127.0.0.1:8080/ingest
 
 # 12D3KooWD1BgwEJGUXz3DsKVXGFq3VcmHRjeX56NKpyEa1QAP6uV
 
-python -m examples.cli.run_server_dag_example \
+python -m examples.cli.run_basic_server \
 --private_key_path dorothy.key \
 --port 38964 \
 --bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
@@ -128,129 +125,26 @@ python -m examples.cli.run_server_dag_example \
 --gossip_receiver_log_level 20 \
 --publish_heartbeat_log_level 20 \
 --maintain_connections_log_level 20 \
---base_path /tmp/dorothy \
+--base_path /tmp/basic-dorothy \
 --telemetry_url ws://127.0.0.1:8080/ingest
-
-# 12D3KooWMGKEpzz3EWGU2ayhwFriRh23QnQ479Ctfj8xSmDRirde
-
-python -m examples.cli.run_server_dag_example \
---private_key_path ethan.key \
---port 38965 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
---subnet_id 1 \
---subnet_node_id 5 \
---no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20 \
---base_path /tmp/ethan \
---telemetry_url ws://127.0.0.1:8080/ingest
-
-# 12D3KooWF963f4jiFX26xDKu7BrqtVYTx4Jk8rUQQUxwiJQjVFWH
-
-python -m examples.cli.run_server_dag_example \
---private_key_path faith.key \
---port 38966 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
---subnet_id 1 \
---subnet_node_id 6 \
---no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20 \
---base_path /tmp/faith \
---telemetry_url ws://127.0.0.1:8080/ingest
-
-python -m examples.cli.run_server_dag_example \
---private_key_path george.key \
---port 38967 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
---subnet_id 1 \
---subnet_node_id 7 \
---no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20 \
---base_path /tmp/george \
---telemetry_url ws://127.0.0.1:8080/ingest
-
-python -m examples.cli.run_server_dag_example \
---private_key_path harry.key \
---port 38968 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
---subnet_id 1 \
---subnet_node_id 8 \
---no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20 \
---base_path /tmp/harry \
---telemetry_url ws://127.0.0.1:8080/ingest
-
-python -m examples.cli.run_server_dag_example \
---private_key_path ian.key \
---port 38969 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
---subnet_id 1 \
---subnet_node_id 9 \
---no_blockchain_rpc \
---heartbeat_validator_log_level 20 \
---gossip_receiver_log_level 20 \
---publish_heartbeat_log_level 20 \
---maintain_connections_log_level 20 \
---base_path /tmp/ian \
---telemetry_url ws://127.0.0.1:8080/ingest
-
 
 # Run locally with local RPC connection
 
-# Start bootnode (or start bootnode through `run_bootnode`)
-
-- Register subnet
-- Register subnet nodes
-
-# Start nodes
-
-python -m examples.cli.run_server_dag_example \
+python -m examples.cli.run_basic_server \
 --private_key_path bootnode.key \
 --port 38960 \
 --subnet_id 1 \
 --is_bootstrap \
 --local_rpc
 
-# Connect to bootnode
-
-python -m examples.cli.run_server_dag_example \
+python -m examples.cli.run_basic_server \
 --private_key_path alith.key \
 --port 38961 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
+--bootstrap /ip4/127.0.0.1/tcp/38960/p2p/<BOOTSTRAP_PEER_ID> \
 --subnet_id 128001 \
 --subnet_node_id 1 \
 --tensor_private_key 0x883189525adc71f940606d02671bd8b7dfe3b2f75e2a6ed1f5179ac794566b40 \
 --local_rpc
-
-python -m examples.cli.run_server_dag_example \
---private_key_path baltathar.key \
---port 38962 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
---subnet_id 1 \
---subnet_node_id 2 \
---tensor_private_key 0x6cbf451fc5850e75cd78055363725dcf8c80b3f1dfb9c29d131fece6dfb72490 \
---local_rpc
-
-python -m examples.cli.run_server_dag_example \
---private_key_path charleth.key \
---port 38963 \
---bootstrap /ip4/127.0.0.1/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF \
---subnet_id 1 \
---subnet_node_id 3 \
---tensor_private_key 0x51b7c50c1cd27de89a361210431e8f03a7ddda1a0c8c5ff4e4658ca81ac02720 \
---local_rpc
-
         """,
     )
 
@@ -306,13 +200,13 @@ python -m examples.cli.run_server_dag_example \
     parser.add_argument(
         "--disable_pubsub_validator",
         action="store_true",
-        help="Disable pubsub validator",
+        help="Disable pubsub validators",
     )
 
     parser.add_argument(
         "--disable_consensus",
         action="store_true",
-        help="Disable consensus",
+        help="[Deprecated] Accepted for compatibility; basic pubsub server does not run consensus by default.",
     )
 
     parser.add_argument(
@@ -366,13 +260,19 @@ python -m examples.cli.run_server_dag_example \
         "--publish_heartbeat_log_level",
         type=int,
         default=logging.DEBUG,
-        help="Log level for publish heartbeat. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
+        help="Log level for heartbeat and peer-state publishers. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
     )
     parser.add_argument(
         "--maintain_connections_log_level",
         type=int,
         default=logging.DEBUG,
         help="Log level for maintain connections. 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL",
+    )
+    parser.add_argument(
+        "--offline_gossip_settle_seconds",
+        type=float,
+        default=3.0,
+        help="Seconds to wait after publishing the final offline peer-state message.",
     )
 
     parser.add_argument(
@@ -445,7 +345,7 @@ def main() -> None:
         logging.getLogger().setLevel(logging.INFO)
 
     # Log startup information
-    logger.info("Starting libp2p subnet server node...")
+    logger.info("Starting basic pubsub example server node...")
 
     port = args.port
     if port <= 0:
@@ -521,7 +421,7 @@ def main() -> None:
             if subnet_node_info is None:
                 raise Exception("Subnet node does not exist")
 
-            if subnet_node_info.hotkey.lower() != hotkey.lower():
+            if hotkey is not None and subnet_node_info.hotkey.lower() != hotkey.lower():
                 raise Exception(
                     f"Subnet node hotkey does not match. Expected: {subnet_node_info.hotkey}, Actual: {hotkey}"
                 )
@@ -599,16 +499,17 @@ def main() -> None:
         server = Server(
             ip=args.ip,
             port=port,
-            peerstore_db_path=None,  # TODO: Libp2p persistent peerstore needs work to be implemented
+            peerstore_db_path=args.peerstore_db_path,
             bootstrap_addrs=args.bootstrap,
             key_pair=key_pair,
             db=db,
             subnet_id=args.subnet_id,
+            subnet_slot=slot,
             subnet_node_id=args.subnet_node_id,
             hypertensor=hypertensor,
             is_bootstrap=args.is_bootstrap,
             enable_pubsub_validator=not args.disable_pubsub_validator,
-            enable_consensus=not args.disable_consensus,
+            enable_consensus=False,
             enable_proof_of_stake=not args.disable_proof_of_stake,
             strict_maintain_connections=not args.disable_strict_maintain_connections,
             enable_mDNS=args.enable_mDNS,
@@ -621,6 +522,7 @@ def main() -> None:
             gossip_receiver_log_level=args.gossip_receiver_log_level,
             publish_heartbeat_log_level=args.publish_heartbeat_log_level,
             maintain_connections_log_level=args.maintain_connections_log_level,
+            offline_gossip_settle_seconds=args.offline_gossip_settle_seconds,
         )
         trio.run(server.run)
     except KeyboardInterrupt:

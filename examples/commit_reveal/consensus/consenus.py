@@ -7,7 +7,7 @@ from subnet.hypertensor.chain_functions import Hypertensor
 from subnet.hypertensor.mock.local_chain_functions import LocalMockHypertensor
 from subnet.merkle_dag.interfaces import DagStorage
 from subnet.utils.db.database import RocksDB
-from subnet.utils.hypertensor.subnet_info_tracker_v5 import SubnetInfoTracker
+from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
 
 
 class Consensus(BaseConsensus):

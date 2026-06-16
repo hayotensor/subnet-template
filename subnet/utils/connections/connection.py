@@ -13,7 +13,7 @@ import trio
 
 from subnet.config import GOSSIPSUB_PROTOCOL_ID
 from subnet.telemetry.telemetry import Telemetry
-from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
+from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
 
 logger = logging.getLogger("subnet.utils.connection")
 
@@ -73,7 +73,7 @@ def log_gossipsub_peer_scores(
             "GossipSub score params: publish_threshold=%s gossip_threshold=%s "
             "graylist_threshold=%s accept_px_threshold=%s p5_weight=%s "
             "p5_threshold=%s p5_decay=%s max_messages_per_topic_per_second=%s "
-            "max_iwant_requests_per_second=%s max_ihave_messages_per_second=%s",
+            "max_idontwant_messages=%s",
             score_params.publish_threshold,
             score_params.gossip_threshold,
             score_params.graylist_threshold,
@@ -81,37 +81,30 @@ def log_gossipsub_peer_scores(
             score_params.p5_behavior_penalty_weight,
             score_params.p5_behavior_penalty_threshold,
             score_params.p5_behavior_penalty_decay,
-            gossipsub.max_messages_per_topic_per_second,
-            gossipsub.max_iwant_requests_per_second,
-            gossipsub.max_ihave_messages_per_second,
+            getattr(gossipsub, "max_messages_per_topic_per_second", None),
+            getattr(gossipsub, "max_idontwant_messages", None),
         )
 
         peer_scores = []
         for peer_id in sorted(peers, key=str):
             topic_scores = {topic: scorer.score(peer_id, [topic]) for topic in topics}
             score_stats_by_topic = {topic: scorer.get_score_stats(peer_id, topic) for topic in topics}
-            message_rate_limits = {
-                topic: {
-                    "last_1s": sum(1 for timestamp in timestamps if current_time - timestamp <= 1.0),
-                    "last_60s": sum(1 for timestamp in timestamps if current_time - timestamp <= 60.0),
-                    "tracked": len(timestamps),
-                }
-                for topic, timestamps in gossipsub.message_rate_limits.get(peer_id, {}).items()
-            }
-            ihave_rate_limits = {
-                topic: {
-                    "last_1s": sum(1 for timestamp in timestamps if current_time - timestamp <= 1.0),
-                    "tracked": len(timestamps),
-                }
-                for topic, timestamps in gossipsub.ihave_message_limits.get(peer_id, {}).items()
-            }
-            iwant_rate_limits = {
-                name: {
-                    "last_1s": sum(1 for timestamp in timestamps if current_time - timestamp <= 1.0),
-                    "tracked": len(timestamps),
-                }
-                for name, timestamps in gossipsub.iwant_request_limits.get(peer_id, {}).items()
-            }
+            message_rate_limits = _peer_rate_limit_stats(
+                getattr(gossipsub, "message_rate_limits", None),
+                peer_id,
+                current_time,
+                include_60s=True,
+            )
+            ihave_rate_limits = _peer_rate_limit_stats(
+                getattr(gossipsub, "ihave_message_limits", None),
+                peer_id,
+                current_time,
+            )
+            iwant_rate_limits = _peer_rate_limit_stats(
+                getattr(gossipsub, "iwant_request_limits", None),
+                peer_id,
+                current_time,
+            )
             subscribed_topics = (
                 sorted(topic for topic, topic_peers in pubsub.peer_topics.items() if peer_id in topic_peers)
                 if pubsub is not None
@@ -143,7 +136,10 @@ def log_gossipsub_peer_scores(
                         "ihave": ihave_rate_limits,
                         "iwant": iwant_rate_limits,
                     },
-                    "graft_flood_tracking": dict(gossipsub.graft_flood_tracking.get(peer_id, {})),
+                    "graft_flood_tracking": _peer_mapping_as_dict(
+                        getattr(gossipsub, "graft_flood_tracking", None),
+                        peer_id,
+                    ),
                 }
             )
 
@@ -197,6 +193,52 @@ def _peer_topic_counter_total(counter_by_topic: object, peer_id: PeerID) -> floa
     return float(sum(peer_counters.values()))
 
 
+def _peer_counter_value(counter_by_peer: object, peer_id: PeerID) -> float:
+    if not hasattr(counter_by_peer, "get"):
+        return 0.0
+
+    return float(counter_by_peer.get(peer_id, 0.0))
+
+
+def _peer_rate_limit_stats(
+    rate_limits_by_peer: object,
+    peer_id: PeerID,
+    current_time: float,
+    *,
+    include_60s: bool = False,
+) -> dict[str, dict[str, int]]:
+    if not hasattr(rate_limits_by_peer, "get"):
+        return {}
+
+    peer_limits = rate_limits_by_peer.get(peer_id, {})
+    if not hasattr(peer_limits, "items"):
+        return {}
+
+    stats = {}
+    for name, timestamps in peer_limits.items():
+        timestamps = list(timestamps)
+        value = {
+            "last_1s": sum(1 for timestamp in timestamps if current_time - timestamp <= 1.0),
+            "tracked": len(timestamps),
+        }
+        if include_60s:
+            value["last_60s"] = sum(1 for timestamp in timestamps if current_time - timestamp <= 60.0)
+        stats[str(name)] = value
+
+    return stats
+
+
+def _peer_mapping_as_dict(mapping_by_peer: object, peer_id: PeerID) -> dict[str, object]:
+    if not hasattr(mapping_by_peer, "get"):
+        return {}
+
+    peer_mapping = mapping_by_peer.get(peer_id, {})
+    if not hasattr(peer_mapping, "items"):
+        return {}
+
+    return {str(key): value for key, value in peer_mapping.items()}
+
+
 def find_abusive_gossipsub_peers(
     gossipsub: GossipSub | None,
     pubsub: Pubsub | None,
@@ -226,17 +268,17 @@ def find_abusive_gossipsub_peers(
         if score <= score_threshold:
             reasons.append(f"score={score} <= {score_threshold}")
 
-        behavior_penalty = float(scorer.behavior_penalty.get(peer_id, 0.0))
+        behavior_penalty = _peer_counter_value(getattr(scorer, "behavior_penalty", None), peer_id)
         if behavior_penalty >= behavior_penalty_threshold:
             reasons.append(f"behavior_penalty={behavior_penalty} >= {behavior_penalty_threshold}")
 
-        invalid_messages = _peer_topic_counter_total(scorer.invalid_messages, peer_id)
+        invalid_messages = _peer_topic_counter_total(getattr(scorer, "invalid_messages", None), peer_id)
         if invalid_messages >= invalid_message_threshold:
             reasons.append(f"invalid_messages={invalid_messages} >= {invalid_message_threshold}")
 
-        graft_flood_penalty = float(scorer.graft_flood_penalties.get(peer_id, 0.0))
-        iwant_spam_penalty = float(scorer.iwant_spam_penalties.get(peer_id, 0.0))
-        ihave_spam_penalty = float(scorer.ihave_spam_penalties.get(peer_id, 0.0))
+        graft_flood_penalty = _peer_counter_value(getattr(scorer, "graft_flood_penalties", None), peer_id)
+        iwant_spam_penalty = _peer_counter_value(getattr(scorer, "iwant_spam_penalties", None), peer_id)
+        ihave_spam_penalty = _peer_counter_value(getattr(scorer, "ihave_spam_penalties", None), peer_id)
         control_penalty = graft_flood_penalty + iwant_spam_penalty + ihave_spam_penalty
         if control_penalty >= control_penalty_threshold:
             reasons.append(
@@ -244,7 +286,7 @@ def find_abusive_gossipsub_peers(
                 f"(graft={graft_flood_penalty}, iwant={iwant_spam_penalty}, ihave={ihave_spam_penalty})"
             )
 
-        equivocation_penalty = float(scorer.equivocation_penalties.get(peer_id, 0.0))
+        equivocation_penalty = _peer_counter_value(getattr(scorer, "equivocation_penalties", None), peer_id)
         if equivocation_penalty >= equivocation_penalty_threshold:
             reasons.append(f"equivocation_penalty={equivocation_penalty} >= {equivocation_penalty_threshold}")
 

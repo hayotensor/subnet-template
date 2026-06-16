@@ -37,7 +37,7 @@ from subnet.utils.connections.connection import (
     demonstrate_random_walk_discovery,
     maintain_connections,
 )
-from subnet.utils.hypertensor.subnet_info_tracker_v5 import SubnetInfoTracker
+from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
 from subnet.utils.patches import apply_all_patches
 from subnet.utils.pos.pos_transport import (
     PROTOCOL_ID as POS_PROTOCOL_ID,
@@ -514,7 +514,12 @@ class ServerBase:
         logger.info("Starting consensus complete")
 
     def create_consensus(self, runtime: ConsensusRuntime) -> ConsensusRunner:
-        """Create the consensus runner used when ``enable_consensus=True``."""
+        """
+        Create the consensus runner used when ``enable_consensus=True``.
+
+        This will auto-run in ``_start_consensus`` by starting the ``_main_loop``
+        function with the nursery.
+        """
         if self.consensus_factory is not None:
             return self.consensus_factory(runtime)
 

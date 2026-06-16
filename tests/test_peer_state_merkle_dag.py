@@ -15,8 +15,8 @@ from subnet.utils.dag.peer_state_dag_publisher import (
     PeerStateData,
     ServerState,
 )
-from subnet.utils.pubsub.topics import PEER_STATE_TOPIC
 
+PEER_STATE_TOPIC="peer_state"
 TEST_DAG_NAMESPACE = "general-dag"
 TEST_SCHEMA_ID = "general-dag"
 TEST_PEER_STATE_SCHEMA_ID = "peer-state"

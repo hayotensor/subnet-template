@@ -9,7 +9,6 @@ from libp2p.abc import (
 from libp2p.network.stream.exceptions import (
     StreamEOF,
 )
-from libp2p.peer.id import ID as PeerID
 from libp2p.tools.utils import (
     info_from_p2p_addr,
 )
@@ -22,7 +21,7 @@ from subnet.protocols.pb.mock_protocol_pb2 import (
     MockProtocolMessage,
 )
 from subnet.telemetry.telemetry import Telemetry
-from subnet.utils.hypertensor.subnet_info_tracker_v3 import SubnetInfoTracker
+from subnet.utils.hypertensor.subnet_info_tracker import SubnetInfoTracker
 from subnet.utils.logging_config import configure_logging
 
 # Configure logging
