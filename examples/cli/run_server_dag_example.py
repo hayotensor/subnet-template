@@ -46,7 +46,7 @@ def parse_args() -> argparse.Namespace:
 Examples:
 # Run locally with no RPC connection
 
-# Start bootnode (or start bootnode through `run_bootnode`)
+# Start a bootstrap node with `--is_bootstrap`
 
 # 12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF
 
@@ -208,7 +208,7 @@ python -m examples.cli.run_server_dag_example \
 
 # Run locally with local RPC connection
 
-# Start bootnode (or start bootnode through `run_bootnode`)
+# Start a bootstrap node with `--is_bootstrap`
 
 - Register subnet
 - Register subnet nodes

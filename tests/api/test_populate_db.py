@@ -60,8 +60,8 @@ def populate_test_data():
 
     db.close()
     print("\n✅ Test database populated successfully!")
-    print(f"\nTo test the API, run:")
-    print(f"  API_DB_PATH=/tmp/test_rocksdb python -m subnet.api.main")
+    print("\nTo expose node functionality over HTTP, instantiate NetworkApiServer with your own NetworkApi object.")
+    print("See subnet/network_api/README.md for the supported library integration path.")
 
 
 if __name__ == "__main__":

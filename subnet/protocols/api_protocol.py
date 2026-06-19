@@ -1,9 +1,11 @@
 """API Protocol for communication between peers that have APIs."""
 
+from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass
 import json
 import logging
 import os
+from typing import Protocol
 
 import httpx
 from libp2p.abc import (
@@ -33,7 +35,13 @@ logger = logging.getLogger("api_protocol/1.0.0")
 
 # Protocol ID - this must match between all peers using this protocol
 PROTOCOL_ID = "/subnet/api_protocol/1.0.0"
-MAX_READ_LEN = 2**32 - 1
+DEFAULT_MAX_FRAME_BYTES = 1024 * 1024
+DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024
+DEFAULT_HTTP_TIMEOUT_SECONDS = 30.0
+DEFAULT_ALLOWED_METHODS = ("GET", "POST")
+DEFAULT_ALLOWED_HEADERS = ("accept", "content-type")
+MAX_STREAM_WRITE_LEN = 60 * 1024
+MAX_VARINT_PREFIX_LEN = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +50,164 @@ class ApiRouteConfig:
 
     url: str
     stream: bool = False
+    allowed_methods: tuple[str, ...] | None = None
+    allowed_headers: tuple[str, ...] | None = None
+    max_request_bytes: int | None = None
+    max_response_bytes: int | None = None
+    timeout_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ApiRequestValidationContext:
+    """Values available to request validation before an HTTP call is made."""
+
+    peer_id: str
+    route: str
+    route_config: ApiRouteConfig
+    method: str
+    headers: dict[str, str]
+    body: bytes
+    response_type: int
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedApiRequest:
+    """Normalized request values approved for HTTP forwarding."""
+
+    method: str
+    headers: dict[str, str]
+    body: bytes | None
+    timeout_seconds: float
+    max_response_bytes: int
+
+
+class ApiRequestValidator(Protocol):
+    """Extension point for applications that need custom API bridge policy."""
+
+    @property
+    def max_frame_bytes(self) -> int:
+        """Maximum inbound or outbound protobuf request frame size."""
+
+    @property
+    def max_response_bytes(self) -> int:
+        """Maximum raw response bytes read from or written to a peer stream."""
+
+    def validate_request(self, context: ApiRequestValidationContext) -> ValidatedApiRequest:
+        """Validate and normalize an inbound peer request."""
+
+
+class ApiProtocolValidationError(ValueError):
+    """Raised when a peer API request violates local forwarding policy."""
+
+
+@dataclass(frozen=True, slots=True)
+class ApiRequestPolicy:
+    """Default allowlist and resource-limit policy used by ``ApiProtocol``."""
+
+    allowed_routes: tuple[str, ...] | None = None
+    allowed_methods: tuple[str, ...] = DEFAULT_ALLOWED_METHODS
+    allowed_headers: tuple[str, ...] = DEFAULT_ALLOWED_HEADERS
+    max_frame_bytes: int = DEFAULT_MAX_FRAME_BYTES
+    max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES
+    http_timeout_seconds: float = DEFAULT_HTTP_TIMEOUT_SECONDS
+
+
+class DefaultApiRequestValidator:
+    """
+    Default modular validation for the peer-to-HTTP bridge.
+
+    Subnet builders can replace this object entirely by passing an
+    ``ApiRequestValidator`` implementation to ``ApiProtocol``.
+    """
+
+    def __init__(self, policy: ApiRequestPolicy | None = None):
+        self.policy = policy or ApiRequestPolicy()
+        if self.policy.max_frame_bytes < 0:
+            raise ValueError("max_frame_bytes must be non-negative")
+        if self.policy.max_response_bytes < 0:
+            raise ValueError("max_response_bytes must be non-negative")
+        if self.policy.http_timeout_seconds <= 0:
+            raise ValueError("http_timeout_seconds must be greater than zero")
+
+    @property
+    def max_frame_bytes(self) -> int:
+        return self.policy.max_frame_bytes
+
+    @property
+    def max_response_bytes(self) -> int:
+        return self.policy.max_response_bytes
+
+    def validate_request(self, context: ApiRequestValidationContext) -> ValidatedApiRequest:
+        allowed_routes = _normalize_optional_set(self.policy.allowed_routes, upper=False)
+        if allowed_routes is not None and context.route not in allowed_routes:
+            raise ApiProtocolValidationError(f"Route not allowed: {context.route}")
+
+        method = context.method.upper()
+        allowed_methods = _normalize_set(
+            context.route_config.allowed_methods or self.policy.allowed_methods,
+            upper=True,
+        )
+        if method not in allowed_methods:
+            raise ApiProtocolValidationError(f"Method not allowed for route {context.route}: {method}")
+
+        max_request_bytes = context.route_config.max_request_bytes
+        if max_request_bytes is None:
+            max_request_bytes = self.policy.max_frame_bytes
+        if len(context.body) > max_request_bytes:
+            raise ApiProtocolValidationError(
+                f"Request body for route {context.route} exceeds maximum {max_request_bytes} bytes"
+            )
+
+        allowed_headers = _normalize_set(
+            context.route_config.allowed_headers or self.policy.allowed_headers,
+            upper=False,
+        )
+        headers = _filter_headers(context.headers, allowed_headers, context.route)
+
+        timeout_seconds = context.route_config.timeout_seconds
+        if timeout_seconds is None:
+            timeout_seconds = self.policy.http_timeout_seconds
+        if timeout_seconds <= 0:
+            raise ApiProtocolValidationError("HTTP timeout must be greater than zero")
+
+        max_response_bytes = context.route_config.max_response_bytes
+        if max_response_bytes is None:
+            max_response_bytes = self.policy.max_response_bytes
+        if max_response_bytes < 0:
+            raise ApiProtocolValidationError("max_response_bytes must be non-negative")
+
+        return ValidatedApiRequest(
+            method=method,
+            headers=headers,
+            body=context.body if context.body else None,
+            timeout_seconds=float(timeout_seconds),
+            max_response_bytes=max_response_bytes,
+        )
+
+
+def _normalize_optional_set(values: Iterable[str] | None, *, upper: bool) -> frozenset[str] | None:
+    if values is None:
+        return None
+    return _normalize_set(values, upper=upper)
+
+
+def _normalize_set(values: Iterable[str], *, upper: bool) -> frozenset[str]:
+    normalized = []
+    for value in values:
+        if not isinstance(value, str) or not value:
+            raise ValueError("allowlist values must be non-empty strings")
+        normalized.append(value.upper() if upper else value.lower())
+    return frozenset(normalized)
+
+
+def _filter_headers(headers: dict[str, str], allowed_headers: frozenset[str], route: str) -> dict[str, str]:
+    filtered: dict[str, str] = {}
+    for name, value in headers.items():
+        header_name = str(name).lower()
+        if header_name not in allowed_headers:
+            raise ApiProtocolValidationError(f"Header not allowed for route {route}: {name}")
+        filtered[header_name] = str(value)
+    return filtered
 
 
 class ApiProtocolConfig:
@@ -96,15 +262,30 @@ class ApiProtocolConfig:
             {
               "health": {
                 "url": "http://127.0.0.1:8000/health",
-                "stream": false
+                "stream": false,
+                "allowed_methods": ["GET"],
+                "allowed_headers": ["accept"],
+                "max_request_bytes": 0,
+                "max_response_bytes": 4096,
+                "timeout_seconds": 2.0
               },
               "inference": {
                 "url": "http://127.0.0.1:8000/v1/inference",
-                "stream": false
+                "stream": false,
+                "allowed_methods": ["POST"],
+                "allowed_headers": ["accept", "content-type"],
+                "max_request_bytes": 1048576,
+                "max_response_bytes": 10485760,
+                "timeout_seconds": 30.0
               },
               "events": {
                 "url": "http://127.0.0.1:8000/v1/events",
-                "stream": true
+                "stream": true,
+                "allowed_methods": ["GET"],
+                "allowed_headers": ["accept"],
+                "max_request_bytes": 0,
+                "max_response_bytes": 10485760,
+                "timeout_seconds": 60.0
               }
             }
 
@@ -187,7 +368,61 @@ class ApiProtocolConfig:
         if not isinstance(raw_stream, bool):
             raise ValueError("route config stream field must be true or false")
 
-        return ApiRouteConfig(url=raw_url, stream=raw_stream)
+        return ApiRouteConfig(
+            url=raw_url,
+            stream=raw_stream,
+            allowed_methods=ApiProtocolConfig._parse_string_tuple(raw_route, "allowed_methods", "methods"),
+            allowed_headers=ApiProtocolConfig._parse_string_tuple(raw_route, "allowed_headers", "headers"),
+            max_request_bytes=ApiProtocolConfig._parse_optional_int(raw_route, "max_request_bytes"),
+            max_response_bytes=ApiProtocolConfig._parse_optional_int(raw_route, "max_response_bytes"),
+            timeout_seconds=ApiProtocolConfig._parse_optional_float(raw_route, "timeout_seconds"),
+        )
+
+    @staticmethod
+    def _parse_string_tuple(raw_route: dict, *keys: str) -> tuple[str, ...] | None:
+        for key in keys:
+            if key not in raw_route:
+                continue
+            raw_values = raw_route[key]
+            if raw_values is None:
+                return None
+            if not isinstance(raw_values, list | tuple):
+                raise ValueError(f"route config {key} field must be a list of strings")
+            values = tuple(str(value) for value in raw_values if isinstance(value, str) and value)
+            if len(values) != len(raw_values):
+                raise ValueError(f"route config {key} field must contain only non-empty strings")
+            return values
+        return None
+
+    @staticmethod
+    def _parse_optional_int(raw_route: dict, key: str) -> int | None:
+        if key not in raw_route or raw_route[key] is None:
+            return None
+        value = raw_route[key]
+        if isinstance(value, bool):
+            raise ValueError(f"route config {key} field must be an integer")
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"route config {key} field must be an integer") from exc
+        if parsed < 0:
+            raise ValueError(f"route config {key} field must be non-negative")
+        return parsed
+
+    @staticmethod
+    def _parse_optional_float(raw_route: dict, key: str) -> float | None:
+        if key not in raw_route or raw_route[key] is None:
+            return None
+        value = raw_route[key]
+        if isinstance(value, bool):
+            raise ValueError(f"route config {key} field must be a number")
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"route config {key} field must be a number") from exc
+        if parsed <= 0:
+            raise ValueError(f"route config {key} field must be greater than zero")
+        return parsed
 
 
 class ApiProtocol:
@@ -199,7 +434,13 @@ class ApiProtocol:
     Peers register a single api_respond handler that processes incoming requests.
     """
 
-    def __init__(self, host: IHost, config: ApiProtocolConfig, telemetry: Telemetry | None = None):
+    def __init__(
+        self,
+        host: IHost,
+        config: ApiProtocolConfig,
+        telemetry: Telemetry | None = None,
+        request_validator: ApiRequestValidator | None = None,
+    ):
         """
         Initialize the ApiProtocol.
 
@@ -207,11 +448,13 @@ class ApiProtocol:
             host: The libp2p host instance
             config: Configuration defining the API routes
             telemetry: Optional telemetry URL
+            request_validator: Optional custom peer API request validator
 
         """
         self.host = host
         self.config = config or ApiProtocolConfig()
         self.telemetry = telemetry
+        self.request_validator = request_validator or DefaultApiRequestValidator()
 
         # Register the protocol with the host
         self.host.set_stream_handler(PROTOCOL_ID, self._handle_incoming_stream)
@@ -221,11 +464,117 @@ class ApiProtocol:
         self, stream: INetStream, route: str, method: str, headers: dict, body: bytes, response_type: int
     ):
         message = ApiProtocolMessage(
-            route=route, method=method, headers=headers or {}, body=body, response_type=response_type
+            route=route,
+            method=method,
+            headers=headers or {},
+            body=body or b"",
+            response_type=response_type,
         )
-        msg_bytes = message.SerializeToString()
-        length_prefix = varint.encode(len(msg_bytes))
-        await stream.write(length_prefix + msg_bytes)
+        await self._write_frame(stream, message.SerializeToString())
+
+    async def _write_frame(self, stream: INetStream, payload: bytes) -> None:
+        max_frame_bytes = self.request_validator.max_frame_bytes
+        if len(payload) > max_frame_bytes:
+            raise ApiProtocolValidationError(f"API request frame exceeded maximum {max_frame_bytes} bytes")
+
+        frame = varint.encode(len(payload)) + payload
+        for offset in range(0, len(frame), MAX_STREAM_WRITE_LEN):
+            await stream.write(frame[offset : offset + MAX_STREAM_WRITE_LEN])
+
+    async def _read_frame(self, stream: INetStream) -> bytes:
+        length_prefix = bytearray()
+        while len(length_prefix) < MAX_VARINT_PREFIX_LEN:
+            try:
+                byte = await stream.read(1)
+            except StreamEOF as exc:
+                raise ApiProtocolValidationError("Stream closed while reading frame length") from exc
+
+            if not byte:
+                raise ApiProtocolValidationError("Stream closed while reading frame length")
+
+            length_prefix.extend(byte)
+            if byte[0] & 0x80 == 0:
+                break
+        else:
+            raise ApiProtocolValidationError("Frame length prefix exceeded maximum varint size")
+
+        msg_length = varint.decode_bytes(bytes(length_prefix))
+        max_frame_bytes = self.request_validator.max_frame_bytes
+        if msg_length > max_frame_bytes:
+            raise ApiProtocolValidationError(f"API request frame exceeded maximum {max_frame_bytes} bytes")
+
+        return await self._read_exact(stream, msg_length)
+
+    async def _read_exact(self, stream: INetStream, size: int) -> bytes:
+        chunks: list[bytes] = []
+        remaining = size
+        while remaining > 0:
+            try:
+                chunk = await stream.read(remaining)
+            except StreamEOF as exc:
+                raise ApiProtocolValidationError(f"Stream closed while reading {size} byte frame") from exc
+
+            if not chunk:
+                raise ApiProtocolValidationError(f"Stream closed while reading {size} byte frame")
+
+            chunks.append(chunk)
+            remaining -= len(chunk)
+
+        return b"".join(chunks)
+
+    async def _read_response_until_eof(self, stream: INetStream) -> bytes:
+        chunks: list[bytes] = []
+        total_bytes = 0
+        max_response_bytes = self.request_validator.max_response_bytes
+
+        while True:
+            try:
+                chunk = await stream.read(MAX_STREAM_WRITE_LEN)
+            except StreamEOF:
+                break
+
+            if not chunk:
+                break
+
+            total_bytes += len(chunk)
+            if total_bytes > max_response_bytes:
+                raise ApiProtocolValidationError(f"API response exceeded maximum {max_response_bytes} bytes")
+
+            chunks.append(chunk)
+
+        return b"".join(chunks)
+
+    async def _write_limited_response(
+        self,
+        stream: INetStream,
+        chunks: AsyncIterator[bytes],
+        max_response_bytes: int,
+    ) -> None:
+        total_bytes = 0
+        async for chunk in chunks:
+            if not chunk:
+                continue
+
+            total_bytes += len(chunk)
+            if total_bytes > max_response_bytes:
+                raise ApiProtocolValidationError(f"API response exceeded maximum {max_response_bytes} bytes")
+
+            await stream.write(chunk)
+
+    async def _collect_limited_response(self, chunks: AsyncIterator[bytes], max_response_bytes: int) -> bytes:
+        response_chunks: list[bytes] = []
+        total_bytes = 0
+        async for chunk in chunks:
+            if not chunk:
+                continue
+
+            total_bytes += len(chunk)
+            if total_bytes > max_response_bytes:
+                raise ApiProtocolValidationError(f"API response exceeded maximum {max_response_bytes} bytes")
+
+            response_chunks.append(chunk)
+
+        return b"".join(response_chunks)
 
     async def call_remote(
         self,
@@ -239,6 +588,7 @@ class ApiProtocol:
         Call a remote peer's API and wait for a single unary response.
         """
         peer_id = None
+        stream: INetStream | None = None
         try:
             logger.info(f"ApiProtocol call_remote: {route} {method}")
             maddr = destination
@@ -253,13 +603,16 @@ class ApiProtocol:
             if self.telemetry:
                 await self.telemetry.emit_async("api_call_remote", route=route, method=method, peer_id=peer_id)
 
-            # Wait for response (unary means one chunk containing the whole response, or we read until EOF)
-            response = await stream.read(MAX_READ_LEN)
-            await stream.close()
-            return response
+            return await self._read_response_until_eof(stream)
         except Exception as e:
             logger.error(f"ApiProtocol Failed to call_remote on peer {peer_id}: {e}")
             raise
+        finally:
+            if stream is not None:
+                try:
+                    await stream.close()
+                except Exception as close_err:
+                    logger.warning(f"Failed to close ApiProtocol call_remote stream: {close_err}")
 
     async def stream_remote(
         self,
@@ -273,6 +626,7 @@ class ApiProtocol:
         Call a remote peer's API and yield the streaming response.
         """
         peer_id = None
+        stream: INetStream | None = None
         try:
             logger.info(f"ApiProtocol stream_remote: {route} {method}")
             maddr = destination
@@ -287,21 +641,30 @@ class ApiProtocol:
             if self.telemetry:
                 await self.telemetry.emit_async("api_stream_remote", route=route, method=method, peer_id=peer_id)
 
+            total_bytes = 0
+            max_response_bytes = self.request_validator.max_response_bytes
             while True:
                 try:
-                    # In a real framing format, we'd read chunks properly.
-                    # Since we just pipe HTTP chunks to the libp2p stream, read what's available.
-                    chunk = await stream.read(4096)
+                    chunk = await stream.read(MAX_STREAM_WRITE_LEN)
                     if not chunk:
                         break
+
+                    total_bytes += len(chunk)
+                    if total_bytes > max_response_bytes:
+                        raise ApiProtocolValidationError(f"API response exceeded maximum {max_response_bytes} bytes")
+
                     yield chunk
                 except StreamEOF:
                     break
-
-            await stream.close()
         except Exception as e:
             logger.error(f"ApiProtocol Failed to stream_remote on peer {peer_id}: {e}")
             raise
+        finally:
+            if stream is not None:
+                try:
+                    await stream.close()
+                except Exception as close_err:
+                    logger.warning(f"Failed to close ApiProtocol stream_remote stream: {close_err}")
 
     async def _handle_incoming_stream(self, stream: INetStream) -> None:
         """
@@ -310,27 +673,9 @@ class ApiProtocol:
         try:
             peer_id = stream.muxed_conn.peer_id
 
-            # Read varint-prefixed length for the message
-            length_prefix = b""
-            while True:
-                byte = await stream.read(1)
-                if not byte:
-                    logger.warning("Stream closed while reading varint length")
-                    await stream.close()
-                    return
-                length_prefix += byte
-                if byte[0] & 0x80 == 0:
-                    break
-            msg_length = varint.decode_bytes(length_prefix)
-
-            # Read the message bytes
-            msg_bytes = await stream.read(msg_length)
-            if len(msg_bytes) < msg_length:
-                logger.warning("Failed to read full message from stream")
-                await stream.close()
-                return
-
             try:
+                msg_bytes = await self._read_frame(stream)
+
                 # Parse as protobuf
                 message = ApiProtocolMessage()
                 message.ParseFromString(msg_bytes)
@@ -363,19 +708,35 @@ class ApiProtocol:
                         stream_supported=route_config.stream,
                     )
 
-                async with httpx.AsyncClient() as client:
+                context = ApiRequestValidationContext(
+                    peer_id=str(peer_id),
+                    route=message.route,
+                    route_config=route_config,
+                    method=message.method,
+                    headers=dict(message.headers),
+                    body=bytes(message.body),
+                    response_type=message.response_type,
+                )
+                validated = self.request_validator.validate_request(context)
+
+                async with httpx.AsyncClient(timeout=validated.timeout_seconds) as client:
                     async with client.stream(
-                        method=message.method,
+                        method=validated.method,
                         url=route_config.url,
-                        headers=dict(message.headers),
-                        content=message.body if message.body else None,
+                        headers=validated.headers,
+                        content=validated.body,
                     ) as resp:
                         if message.response_type == ApiProtocolMessage.UNARY:
-                            response_body = await resp.aread()
+                            response_body = await self._collect_limited_response(
+                                resp.aiter_bytes(), validated.max_response_bytes
+                            )
                             await stream.write(response_body)
                         elif message.response_type == ApiProtocolMessage.STREAM:
-                            async for chunk in resp.aiter_bytes():
-                                await stream.write(chunk)
+                            await self._write_limited_response(
+                                stream,
+                                resp.aiter_bytes(),
+                                validated.max_response_bytes,
+                            )
                         else:
                             logger.warning("Unknown response type requested.")
 

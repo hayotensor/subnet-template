@@ -1,29 +1,14 @@
-version: '3.8'
-
 services:
-  api:
+  node:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: rocksdb-api
+    container_name: subnet-template-node
     ports:
-      - "8000:8000"
-    environment:
-      - API_DB_PATH=/data/rocksdb
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-      - API_DB_READ_ONLY=true
-    volumes:
-      # Mount your RocksDB database directory (read-only)
-      # Replace /path/to/your/rocksdb with the actual path
-      - /tmp/rocksdb:/data/rocksdb:ro
+      - "38960:38960"
+    command: >
+      --port 38960 --no_blockchain_rpc
     restart: unless-stopped
-    healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1.0/health')" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
   # Optional: Prometheus for metrics collection
   # prometheus:
   #   image: prom/prometheus:latest

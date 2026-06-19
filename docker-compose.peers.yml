@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   bootnode:
     build:
@@ -11,7 +9,7 @@ services:
     volumes:
       - ./bootnode.key:/app/bootnode.key:ro
     command: >
-      subnet.cli.run_node  --private_key_path /app/bootnode.key  --port 38960  --subnet_id 1  --no_blockchain_rpc  --is_bootstrap
+      --private_key_path /app/bootnode.key  --port 38960  --subnet_id 1  --no_blockchain_rpc  --is_bootstrap
 
   node-alith:
     build:
@@ -23,7 +21,7 @@ services:
     volumes:
       - ./alith.key:/app/alith.key:ro
     command: >
-      subnet.cli.run_node  --private_key_path /app/alith.key  --port 38961  --bootstrap /dns4/bootnode/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF  --subnet_id 1  --subnet_node_id 1  --no_blockchain_rpc
+      --private_key_path /app/alith.key  --port 38961  --bootstrap /dns4/bootnode/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF  --subnet_id 1  --subnet_node_id 1  --no_blockchain_rpc
     depends_on:
       - bootnode
 
@@ -37,7 +35,7 @@ services:
     volumes:
       - ./baltathar.key:/app/baltathar.key:ro
     command: >
-      subnet.cli.run_node  --private_key_path /app/baltathar.key  --port 38962  --bootstrap /dns4/bootnode/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF  --subnet_id 1  --subnet_node_id 2  --no_blockchain_rpc
+      --private_key_path /app/baltathar.key  --port 38962  --bootstrap /dns4/bootnode/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF  --subnet_id 1  --subnet_node_id 2  --no_blockchain_rpc
     depends_on:
       - bootnode
 
@@ -51,7 +49,7 @@ services:
     volumes:
       - ./charleth.key:/app/charleth.key:ro
     command: >
-      subnet.cli.run_node  --private_key_path /app/charleth.key  --port 38963  --bootstrap /dns4/bootnode/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF  --subnet_id 1  --subnet_node_id 3  --no_blockchain_rpc
+      --private_key_path /app/charleth.key  --port 38963  --bootstrap /dns4/bootnode/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF  --subnet_id 1  --subnet_node_id 3  --no_blockchain_rpc
     depends_on:
       - bootnode
 
@@ -65,7 +63,7 @@ services:
     volumes:
       - ./dorothy.key:/app/dorothy.key:ro
     command: >
-      subnet.cli.run_node  --private_key_path /app/dorothy.key  --port 38964  --bootstrap /dns4/bootnode/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF  --subnet_id 1  --subnet_node_id 4  --no_blockchain_rpc
+      --private_key_path /app/dorothy.key  --port 38964  --bootstrap /dns4/bootnode/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF  --subnet_id 1  --subnet_node_id 4  --no_blockchain_rpc
     depends_on:
       - bootnode
 
@@ -79,6 +77,6 @@ services:
     volumes:
       - ./ethan.key:/app/ethan.key:ro
     command: >
-      subnet.cli.run_node  --private_key_path /app/ethan.key  --port 38965  --bootstrap /dns4/bootnode/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF  --subnet_id 1  --subnet_node_id 5  --no_blockchain_rpc
+      --private_key_path /app/ethan.key  --port 38965  --bootstrap /dns4/bootnode/tcp/38960/p2p/12D3KooWLGmub3LXuKQixBD5XwNW4PtSfnrysYzqs1oj19HxMUCF  --subnet_id 1  --subnet_node_id 5  --no_blockchain_rpc
     depends_on:
       - bootnode

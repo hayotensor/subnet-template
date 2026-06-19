@@ -89,6 +89,9 @@ class POSTransport:
         return noise_secure_outbound
 
     def proof_of_stake(self, peer_id: ID) -> bool:
+        if self.pos is None:
+            return True
+
         try:
             pos = self.pos.proof_of_stake(
                 peer_id=peer_id,
@@ -97,5 +100,8 @@ class POSTransport:
             return pos
         except Exception as e:
             logger.warning(f"Proof of stake failed: {e}", exc_info=True)
-            # If error with RPC, allow connection
-            return True
+            try:
+                self.pos.update_peer_id_fail(peer_id)
+            except Exception:
+                logger.debug("Failed to record proof-of-stake failure for %s", peer_id, exc_info=True)
+            return False

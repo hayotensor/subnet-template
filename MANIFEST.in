@@ -9,6 +9,8 @@ include .pre-commit-config.yaml
 
 recursive-include subnet *.py
 recursive-include subnet py.typed
+recursive-include subnet *.json
+recursive-include subnet *.proto
 recursive-include tests *.py
 
 recursive-exclude * __pycache__

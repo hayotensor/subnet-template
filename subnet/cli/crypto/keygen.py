@@ -23,14 +23,19 @@ def main():
         choices=SUPPORTED_KEY_TYPES,
         help="Type of libp2p private key to generate. ",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing private key file. Existing files are refused by default.",
+    )
 
     args = parser.parse_args()
 
     try:
-        store_private_key(args.path, key_type=args.key_type)
+        store_private_key(args.path, key_type=args.key_type, overwrite=args.overwrite)
     except Exception as e:
         print(f"❌ Error getting key pair: {e}")
-        print(f"Run `rm -rf {args.path}` and try again.")
+        print("Private key files are not overwritten unless --overwrite is provided.")
 
 
 if __name__ == "__main__":

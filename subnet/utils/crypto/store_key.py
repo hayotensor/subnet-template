@@ -1,3 +1,4 @@
+import os
 import secrets
 import time
 
@@ -25,6 +26,7 @@ from libp2p.peer.id import ID as PeerID
 from libp2p.peer.pb import crypto_pb2
 
 SUPPORTED_KEY_TYPES = ("ecc", "ed25519", "rsa", "secp256k", "secp256k1")
+PRIVATE_KEY_FILE_MODE = 0o600
 
 _KEY_TYPE_ALIASES = {
     "ecc": "ecc",
@@ -43,6 +45,102 @@ _PROTOBUF_KEY_TYPES = {
     "rsa": crypto_pb2.KeyType.RSA,
     "secp256k1": crypto_pb2.KeyType.Secp256k1,
 }
+
+
+def _private_key_file_exists_error(path: str) -> FileExistsError:
+    return FileExistsError(f"Private key file already exists: {path}. Pass overwrite=True to replace it.")
+
+
+def _secure_create_flags() -> int:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    return flags
+
+
+def _write_private_key_fd(fd: int, data: bytes) -> None:
+    try:
+        os.fchmod(fd, PRIVATE_KEY_FILE_MODE)
+        with os.fdopen(fd, "wb") as f:
+            fd = -1
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
+def _fsync_parent_directory(path: str) -> None:
+    directory = os.path.dirname(os.path.abspath(path)) or "."
+    if not hasattr(os, "O_DIRECTORY"):
+        return
+
+    try:
+        dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        return
+
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
+def _create_private_key_file(path: str, data: bytes) -> None:
+    try:
+        fd = os.open(path, _secure_create_flags(), PRIVATE_KEY_FILE_MODE)
+    except FileExistsError as exc:
+        raise _private_key_file_exists_error(path) from exc
+
+    _write_private_key_fd(fd, data)
+    _fsync_parent_directory(path)
+
+
+def _replace_private_key_file(path: str, data: bytes) -> None:
+    directory = os.path.dirname(os.path.abspath(path)) or "."
+    filename = os.path.basename(path)
+    if not filename:
+        raise ValueError("Private key path must include a filename")
+
+    temp_path = ""
+    fd = -1
+    flags = _secure_create_flags()
+    for _ in range(100):
+        candidate = os.path.join(directory, f".{filename}.{secrets.token_hex(16)}.tmp")
+        try:
+            fd = os.open(candidate, flags, PRIVATE_KEY_FILE_MODE)
+            temp_path = candidate
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise FileExistsError(f"Could not create a unique temporary file in {directory}")
+
+    try:
+        write_fd = fd
+        fd = -1
+        _write_private_key_fd(write_fd, data)
+        os.replace(temp_path, path)
+        temp_path = ""
+        _fsync_parent_directory(path)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except FileNotFoundError:
+                pass
+
+
+def _write_private_key_file(path: str, data: bytes, *, overwrite: bool) -> None:
+    if overwrite:
+        _replace_private_key_file(path, data)
+    else:
+        _create_private_key_file(path, data)
 
 
 def _normalize_key_type(key_type: str) -> str:
@@ -110,8 +208,12 @@ def _load_private_key(path: str):
     return _deserialize_private_key(protobuf)
 
 
-def store_private_key(path: str, key_type: str = "ed25519"):
+def store_private_key(path: str, key_type: str = "ed25519", overwrite: bool = False):
     normalized_key_type = _normalize_key_type(key_type)
+    path = os.fspath(path)
+    if not overwrite and os.path.lexists(path):
+        raise _private_key_file_exists_error(path)
+
     key_pair = _create_key_pair(normalized_key_type)
 
     peer_id = PeerID.from_pubkey(key_pair.public_key)
@@ -122,9 +224,7 @@ def store_private_key(path: str, key_type: str = "ed25519"):
         Data=key_pair.private_key.to_bytes(),
     )
 
-    # Store main private key
-    with open(path, "wb") as f:
-        f.write(protobuf.SerializeToString())
+    _write_private_key_file(path, protobuf.SerializeToString(), overwrite=overwrite)
 
     time.sleep(0.5)
 

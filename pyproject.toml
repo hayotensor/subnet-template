@@ -63,6 +63,7 @@ dev = [
     "factory-boy>=2.12.0,<3.0.0",
     "ruff>=0.11.10",
     "pyrefly (>=0.17.1,<0.18.0)",
+    "tomli; python_version < '3.11'",
 ]
 docs = [
     "sphinx>=6.0.0",
@@ -77,6 +78,7 @@ test = [
     "pytest-trio>=0.5.2",
     "pytest-xdist>=2.4.0",
     "pytest-mock>=3.15.1",
+    "tomli; python_version < '3.11'",
 ]
 
 [project.urls]
@@ -87,24 +89,24 @@ Issues = "https://github.com/hayotensor/py-libp2p-subnet/issues"
 
 [project.scripts]
 run_node = "subnet.cli.run_node:main"
-run_bootnode = "subnet.cli.run_bootnode:main"
-run_bootnode_v2 = "subnet.cli.run_bootnode_v2:main"
-run_node_v2 = "subnet.cli.run_node_v2:main"
-run_kad_dht = "subnet.cli.run_kad_dht:main"
 keygen = "subnet.cli.crypto.keygen:main"
 keyview = "subnet.cli.crypto.keyview:main"
 register_subnet = "subnet.cli.hypertensor.subnet.register:main"
 activate_subnet = "subnet.cli.hypertensor.subnet.activate:main"
 register_node = "subnet.cli.hypertensor.node.register:main"
-run_api = "subnet.api.main:cli"
-run_api_keys = "subnet.api.auth.cli:main"
 dag_replication_monitor = "subnet.cli.dag.dag_replication_monitor:main"
 
-[tool.setuptools]
-packages = ["subnet"]
+[tool.setuptools.packages.find]
+include = ["subnet*"]
 
 [tool.setuptools.package-data]
-subnet = ["py.typed"]
+subnet = [
+    "py.typed",
+    "network_api/*.json",
+    "protocols/config/*.example.json",
+    "protocols/pb/*.proto",
+    "utils/pubsub/pb/*.proto",
+]
 
 [tool.pytest.ini_options]
 addopts = "-v --showlocals --durations 50 --maxfail 10"

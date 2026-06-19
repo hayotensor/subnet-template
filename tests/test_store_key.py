@@ -1,3 +1,5 @@
+import stat
+
 import pytest
 from libp2p.peer.id import ID as PeerID
 from libp2p.peer.pb import crypto_pb2
@@ -21,6 +23,7 @@ def test_store_private_key_round_trips_supported_key_types(tmp_path, key_type, p
 
     protobuf = crypto_pb2.PrivateKey.FromString(key_path.read_bytes())
     assert protobuf.Type == protobuf_key_type
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
 
     key_pair = get_key_pair(str(key_path))
     assert key_pair.public_key.to_bytes() == key_pair.private_key.get_public_key().to_bytes()
@@ -30,3 +33,43 @@ def test_store_private_key_round_trips_supported_key_types(tmp_path, key_type, p
 def test_store_private_key_rejects_unknown_key_type(tmp_path):
     with pytest.raises(ValueError, match="Unsupported key type"):
         store_private_key(str(tmp_path / "unsupported.key"), key_type="x25519")
+
+
+def test_store_private_key_refuses_to_overwrite_existing_file(tmp_path):
+    key_path = tmp_path / "existing.key"
+    key_path.write_bytes(b"existing-key-material")
+    key_path.chmod(0o600)
+
+    with pytest.raises(FileExistsError, match="Pass overwrite=True"):
+        store_private_key(str(key_path), key_type="ed25519")
+
+    assert key_path.read_bytes() == b"existing-key-material"
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
+
+def test_store_private_key_overwrite_replaces_file_with_secure_mode(tmp_path):
+    key_path = tmp_path / "existing.key"
+    key_path.write_bytes(b"existing-key-material")
+    key_path.chmod(0o644)
+
+    store_private_key(str(key_path), key_type="ed25519", overwrite=True)
+
+    protobuf = crypto_pb2.PrivateKey.FromString(key_path.read_bytes())
+    assert protobuf.Type == crypto_pb2.KeyType.Ed25519
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+
+
+def test_store_private_key_overwrite_replaces_symlink_instead_of_target(tmp_path):
+    target_path = tmp_path / "target.key"
+    link_path = tmp_path / "link.key"
+    target_path.write_bytes(b"target-key-material")
+    target_path.chmod(0o600)
+    link_path.symlink_to(target_path)
+
+    store_private_key(str(link_path), key_type="ed25519", overwrite=True)
+
+    assert target_path.read_bytes() == b"target-key-material"
+    assert not link_path.is_symlink()
+    protobuf = crypto_pb2.PrivateKey.FromString(link_path.read_bytes())
+    assert protobuf.Type == crypto_pb2.KeyType.Ed25519
+    assert stat.S_IMODE(link_path.stat().st_mode) == 0o600

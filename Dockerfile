@@ -23,9 +23,10 @@ COPY MANIFEST.in ./
 COPY README.md ./
 COPY subnet ./subnet
 
-# Install dependencies
+# Install the library as an installed package so package discovery and console
+# entrypoints match what downstream users get from a wheel/install.
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -e .
+    pip install --no-cache-dir .
 
 # Production stage
 FROM python:3.11-slim
@@ -41,26 +42,16 @@ RUN apt-get update && apt-get install -y \
 # Copy installed packages from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
-COPY --from=builder /app/subnet /app/subnet
 
 # Create non-root user for security
-RUN useradd -m -u 1000 apiuser && \
-    chown -R apiuser:apiuser /app
+RUN useradd -m -u 1000 subnetuser && \
+    chown -R subnetuser:subnetuser /app
 
-USER apiuser
+USER subnetuser
 
-# Expose API port
-EXPOSE 8000
+# Expose the default blank-node libp2p port. Override CMD/command with
+# run_node arguments for node-specific settings.
+EXPOSE 38960
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1.0/health')"
-
-# Set environment variables
-ENV API_HOST=0.0.0.0
-ENV API_PORT=8000
-ENV API_DB_PATH=/data/rocksdb
-
-# Run the API server
-ENTRYPOINT ["python", "-m"]
-CMD ["subnet.api.main"]
+ENTRYPOINT ["python", "-m", "subnet.cli.run_node"]
+CMD ["--port", "38960"]
